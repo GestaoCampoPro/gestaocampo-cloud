@@ -1076,6 +1076,17 @@ body.light-mode .mf{background:rgba(0,0,0,.03)}
           <span style="color:var(--accent-3);cursor:pointer;font-size:10.5px;" onclick="alert('Entre em contato com o Administrador do sistema.')">Problemas para entrar?</span>
         </div>
       </div>
+
+      <!-- SINCRONIZAR DA NUVEM — máquina nova, antes do login local -->
+      <div class="lcard" id="lcardCloud" style="margin-top:14px;">
+        <div style="font-size:11px;color:var(--t3);margin-bottom:10px;">☁️ Primeira vez nesta máquina? Sincronize com a nuvem antes de entrar:</div>
+        <label class="fl">E-mail (nuvem)</label>
+        <input class="fi" id="cloud-login-email" placeholder="seu@email.com" autocomplete="off">
+        <label class="fl">Senha (nuvem)</label>
+        <input class="fi" type="password" id="cloud-login-senha" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')cloudLoginSync()">
+        <button class="lbtn" style="background:var(--gn);margin-top:8px;" onclick="cloudLoginSync()">☁️ Sincronizar da nuvem</button>
+        <div id="cloud-login-status" style="margin-top:8px;font-size:11px;color:var(--t3);"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -8941,11 +8952,16 @@ function save(){
 var SB = window.SB || { client:null, busy:false, timer:null, _url:null, _key:null };
 window.SB = SB;
 var SB_ROW_ID = 'main';
+/* URL e anon key não são segredo (a anon key é feita para ficar pública no
+   HTML, protegida pelo RLS que exige login) — fixadas aqui para que nenhuma
+   máquina nova precise digitá-las. Só e-mail/senha continuam manuais. */
+var SB_DEFAULT_URL = 'https://czrmsdktfjumgwmyifgo.supabase.co';
+var SB_DEFAULT_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN6cm1zZGt0Zmp1bWd3bXlpZmdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5ODc4OTIsImV4cCI6MjEwMTU2Mzg5Mn0.TekYxbiMa6mqxT14agm3sFH8N-_8dAAuthuDhtwY5Wg';
 
 function sbCfg(){
   return {
-    url: ((document.getElementById('cfg-supabase-url')||{}).value || (localStorage.getItem(SK+'_sb_url')||'')).trim(),
-    anonKey: ((document.getElementById('cfg-supabase-anon-key')||{}).value || (localStorage.getItem(SK+'_sb_anon_key')||'')).trim()
+    url: ((document.getElementById('cfg-supabase-url')||{}).value || localStorage.getItem(SK+'_sb_url') || SB_DEFAULT_URL).trim(),
+    anonKey: ((document.getElementById('cfg-supabase-anon-key')||{}).value || localStorage.getItem(SK+'_sb_anon_key') || SB_DEFAULT_ANON_KEY).trim()
   };
 }
 function sbSetStatus(text,color){
@@ -8981,11 +8997,11 @@ async function sbSession(){
   var r = await client.auth.getSession();
   return r.data && r.data.session;
 }
-async function sbLogin(){
+async function sbLogin(emailArg, senhaArg){
   var c=sbPersistCfg();
   if(!c.url || !c.anonKey) throw new Error('Informe a Project URL e a Anon Key do Supabase.');
-  var email=(document.getElementById('cfg-supabase-email')||{}).value||'';
-  var senha=(document.getElementById('cfg-supabase-senha')||{}).value||'';
+  var email=emailArg || (document.getElementById('cfg-supabase-email')||{}).value||'';
+  var senha=senhaArg || (document.getElementById('cfg-supabase-senha')||{}).value||'';
   if(!email || !senha) throw new Error('Informe e-mail e senha do Supabase.');
   var client=sbClient();
   var r = await client.auth.signInWithPassword({ email:email, password:senha });
@@ -9070,6 +9086,29 @@ function connectSupabase(){
 }
 function testConnectionSupabase(){
   sbTestConnection().then(function(){ if(typeof notif==='function') notif('✅ Conexão real com o Supabase validada.','ok'); }).catch(function(e){ if(typeof notif==='function') notif('❌ '+e.message,'er'); });
+}
+/* Botão da TELA DE LOGIN — permite puxar os dados da nuvem numa máquina
+   nova sem precisar antes logar localmente como admin. URL/anon key já
+   vêm fixas (SB_DEFAULT_*); só pede e-mail/senha da nuvem. Depois de
+   sincronizar, S.usuarios já contém as contas de outras máquinas, então
+   o login local abaixo passa a funcionar normalmente. */
+function cloudLoginSync(){
+  var email=(document.getElementById('cloud-login-email')||{}).value||'';
+  var senha=(document.getElementById('cloud-login-senha')||{}).value||'';
+  var st=document.getElementById('cloud-login-status');
+  if(!email || !senha){
+    if(st){ st.textContent='Informe e-mail e senha da nuvem.'; st.style.color='var(--rd)'; }
+    return;
+  }
+  if(st){ st.textContent='☁️ Sincronizando...'; st.style.color='var(--yl)'; }
+  sbLogin(email, senha).then(function(){
+    return sbFullSync();
+  }).then(function(){
+    if(st){ st.textContent='✅ Sincronizado! Agora digite seu usuário e senha do sistema acima.'; st.style.color='var(--gn)'; }
+  }).catch(function(e){
+    console.error(e);
+    if(st){ st.textContent='❌ '+e.message; st.style.color='var(--rd)'; }
+  });
 }
 /* Ao abrir a página, restaura a sessão salva pelo supabase-js (se
    existir) sem pedir e-mail/senha de novo, e já sincroniza sozinho. */
