@@ -26,3 +26,27 @@ alter table public.app_state enable row level security;
 
 create policy "auth_full_access" on public.app_state
   for all to authenticated using (true) with check (true);
+
+-- ============================================================================
+-- Presença multiusuário (2026-08-07) — quem está online agora e o que está
+-- editando, para exibir indicador "🟢 N online" e badge "✏️ Fulano editando"
+-- na lista de Atividades. Uma linha por pessoa (upsert por "usuario" a cada
+-- ~12s enquanto o app estiver aberto); não guarda histórico algum.
+-- IMPORTANTE: NÃO rode o "drop table if exists app_state" acima de novo se
+-- o banco já estiver em produção — rode só o bloco abaixo (ele é seguro,
+-- "if not exists").
+-- ============================================================================
+
+create table if not exists public.presenca_online (
+  usuario text primary key,
+  nome text,
+  pagina text,
+  item_tipo text,
+  item_id text,
+  ts timestamptz not null default now()
+);
+
+alter table public.presenca_online enable row level security;
+
+create policy "auth_full_access" on public.presenca_online
+  for all to authenticated using (true) with check (true);

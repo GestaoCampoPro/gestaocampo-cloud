@@ -1164,6 +1164,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
   <div class="tb no-print">
     <div class="tbtit" id="ptitle">Dashboard</div>
     <div class="tbax">
+      <span id="onlineUsersPill" title="" style="display:none;align-items:center;font-size:10px;font-weight:700;padding:4px 10px;border-radius:999px;border:1px solid rgba(34,197,94,.35);background:rgba(34,197,94,.12);color:#22c55e;letter-spacing:.02em;cursor:default;"></span>
       <span id="saveStatusPill" title="Status de salvamento local"
         style="display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:4px 10px;border-radius:999px;border:1px solid var(--gn-border);background:var(--gn-bg);color:var(--gn);letter-spacing:.02em;">💾 Salvo</span>
       <div id="thmSw" style="display:flex;gap:3px;"></div>
@@ -3126,6 +3127,7 @@ async function login(){
     if(typeof save==='function') save();
     if(typeof init==='function') init();
     if(typeof log==='function') log('Login: '+efetivo.user+' ('+NIVEL_ACESSO_LABELS[efetivo.nivel]+')','👤');
+    if(typeof iniciarPresencaMultiusuario==='function') iniciarPresencaMultiusuario();
   } else {
     // Tentativa inválida — incrementa contador
     _loginAttempts.count++;
@@ -3413,6 +3415,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 function logout(){
   save();
+  if(typeof pararPresencaMultiusuario==='function') pararPresencaMultiusuario();
   document.getElementById('app').classList.remove('on');
   document.getElementById('login').style.display='flex';
 }
@@ -4513,6 +4516,7 @@ function atualizarStatusAtividadesVencidas(){
 // ═══════════════════════════════════════════
 function abrirAtiv(id){
   if(_bloquearSeVisualizador())return;
+  _atAtivBaselineUpTs = 0;
   document.getElementById('mAtTit').textContent='📋 Nova Atividade';
   document.getElementById('atId').value='';
   ['atNome','atSet','atDesc','atIni','atFim','atIntMin','atIntDesc'].forEach(x=>document.getElementById(x).value='');
@@ -4531,6 +4535,8 @@ function abrirAtiv(id){
   if(elFimReal0) elFimReal0.value = '';
   if(id){
     const a=S.atividades.find(x=>x.id===id);if(!a)return;
+    _atAtivBaselineUpTs = a._upTs || 0;
+    if(typeof _presencaHeartbeat==='function') _presencaHeartbeat();
     document.getElementById('mAtTit').textContent='✏️ Editar Atividade';
     document.getElementById('atId').value=a.id;
     document.getElementById('atPj').value=a.projetoId;
@@ -4698,7 +4704,25 @@ function salvarAtiv(){
   _executarSalvamentoAtiv(id, nome, pjId, null);
 }
 
-function _executarSalvamentoAtiv(id, nome, pjId, motivoAtraso){
+async function _executarSalvamentoAtiv(id, nome, pjId, motivoAtraso){
+  // Verificação de conflito: só faz sentido ao editar (não ao criar), e é
+  // "melhor esforço" — se a checagem falhar (offline etc.), segue e salva
+  // normal, sem bloquear o usuário.
+  if(id){
+    const conflito = await _verificarConflitoItem('atividades', id, _atAtivBaselineUpTs);
+    if(conflito){
+      _mostrarConflitoEdicao(
+        'A atividade "'+nome+'"',
+        conflito,
+        ()=>_commitSalvamentoAtiv(id, nome, pjId, motivoAtraso),
+        ()=>{ if(typeof notif==='function') notif('Salvamento cancelado — a versão mais recente foi mantida.','wn'); }
+      );
+      return;
+    }
+  }
+  _commitSalvamentoAtiv(id, nome, pjId, motivoAtraso);
+}
+function _commitSalvamentoAtiv(id, nome, pjId, motivoAtraso){
   const iniAtiv=document.getElementById('atIni').value;
   let resp=[...document.querySelectorAll('#atColList input[type=checkbox]:checked')].map(x=>parseInt(x.value));
   const emFolga=resp.filter(cid=>estaEmFolga(cid,iniAtiv));
@@ -4786,11 +4810,15 @@ function _executarSalvamentoAtiv(id, nome, pjId, motivoAtraso){
     baseline: baseline,
     criadoEm: id ? (S.atividades.find(x=>x.id===id)?.criadoEm || new Date().toISOString()) : new Date().toISOString(),
     // Se houve alteração em atividade atrasada, registra o motivo
-    ...(motivoAtraso&&{motivoAlteracao:motivoAtraso,dataAlteracao:new Date().toISOString()})
+    ...(motivoAtraso&&{motivoAlteracao:motivoAtraso,dataAlteracao:new Date().toISOString()}),
+    // Carimbo usado para detectar conflito de edição simultânea (ver _verificarConflitoItem)
+    _upTs: Date.now(),
+    _upBy: S.currentUser||null
   };
 
   if(id){const i=S.atividades.findIndex(x=>x.id===id);if(i>-1)S.atividades[i]=a;}
   else S.atividades.push(a);
+  _atAtivBaselineUpTs = a._upTs;
   save(); fechar('mAtiv'); renderAtiv(); renderDash();
   log((id?'Atividade editada: ':'Atividade criada: ')+nome+(hasInt?' ⚠️ c/interferência':''),'📋');
   notif(id?'Atividade atualizada!':'Atividade salva!');
@@ -5082,7 +5110,8 @@ function renderAtiv(){
                       + '<div style="font-size:9px;color:#f43f5e;font-weight:500;">('+exced.excedente+'d excedente)</div>';
     }
 
-    return`<tr ${rowStyle}><td style="font-family:'JetBrains Mono';color:var(--t3)">${i+1}</td><td class="b">${a.nome} ${intBadge}${atrasoBadge}${baselineBadge}</td><td style="font-size:10px">${a.setor||(p?p.nome:'—')}</td><td style="font-size:11px;">${baselineDataInicio}</td><td style="font-size:11px;">${baselineDataFim}</td><td>${inicioRealCell}</td><td>${terminoRealCell}</td><td style="font-size:10px;color:var(--t2)">${rn||'—'}</td><td><select class="fi" style="margin:0;padding:3px 5px;font-size:10px;width:120px" onchange="mudaStatusAtiv(${a.id},this.value)">${['Planejada','Em andamento','Concluída','Atrasada','Pausada'].map(s=>`<option ${a.status===s?'selected':''}>${s}</option>`).join('')}</select></td><td style="display:flex;gap:3px">${histBtn}<button class="btn xs" onclick="abrirAtiv(${a.id})">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delAtiv(${a.id})">🗑️</button></td></tr>`;
+    const editandoBadge = typeof _presencaBadgeEditando==='function' ? _presencaBadgeEditando(a.id) : '';
+    return`<tr ${rowStyle}><td style="font-family:'JetBrains Mono';color:var(--t3)">${i+1}</td><td class="b">${a.nome} ${intBadge}${atrasoBadge}${baselineBadge}${editandoBadge}</td><td style="font-size:10px">${a.setor||(p?p.nome:'—')}</td><td style="font-size:11px;">${baselineDataInicio}</td><td style="font-size:11px;">${baselineDataFim}</td><td>${inicioRealCell}</td><td>${terminoRealCell}</td><td style="font-size:10px;color:var(--t2)">${rn||'—'}</td><td><select class="fi" style="margin:0;padding:3px 5px;font-size:10px;width:120px" onchange="mudaStatusAtiv(${a.id},this.value)">${['Planejada','Em andamento','Concluída','Atrasada','Pausada'].map(s=>`<option ${a.status===s?'selected':''}>${s}</option>`).join('')}</select></td><td style="display:flex;gap:3px">${histBtn}<button class="btn xs" onclick="abrirAtiv(${a.id})">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delAtiv(${a.id})">🗑️</button></td></tr>`;
   }).join('');
   renderGantt(list);
 }
@@ -9080,6 +9109,13 @@ let _lastSaveTs = 0;
 // sincronizado com a nuvem nem persistido — vive só na sessão atual).
 let _undoSnapshot = null;
 let _undoActionDesc = null;
+// Presença multiusuário (quem está online agora) — também só na sessão atual.
+let _presenceHeartbeatTimer = null;
+let _presencePollTimer = null;
+let _presenceOnlineUsers = [];
+// _upTs da atividade no momento em que o modal de edição foi aberto, usado
+// para detectar se alguém mais salvou uma versão mais nova enquanto editava.
+let _atAtivBaselineUpTs = 0;
 function _setSaveStatus(state){
   // state: 'ok' | 'pending' | 'err'
   const el = document.getElementById('saveStatusPill');
@@ -9265,6 +9301,176 @@ function scheduleSupabaseSync(){
     }).catch(function(e){console.error(e); if(typeof notif==='function') notif('⚠️ Falha na sincronização: '+e.message,'er');});
   },2500);
 }
+// ═══════════════════════════════════════════
+// PRESENÇA MULTIUSUÁRIO — quem está online agora, o que está editando,
+// e verificação de conflito antes de sobrescrever uma edição de outra pessoa.
+// Tudo aqui é "melhor esforço": qualquer falha de rede é ignorada em
+// silêncio (console.warn) e nunca trava a UI nem impede salvar localmente.
+// ═══════════════════════════════════════════
+function _presencaNomeUsuario(login){
+  const u = (S.usuarios||[]).find(x=>x.user.toLowerCase()===String(login||'').toLowerCase());
+  return (u && u.nome) || login || '—';
+}
+function _presencaPaginaAtual(){
+  const pg = document.querySelector('.pg.on');
+  return pg ? (TITLES[pg.id.replace('pg-','')] || pg.id) : '';
+}
+// Recalculado a cada heartbeat (não precisa ser "limpo" ao fechar o modal
+// por qualquer caminho — X, backdrop, Esc — porque sempre reflete o DOM atual).
+function _presencaContextoAtual(){
+  const mAtiv = document.getElementById('mAtiv');
+  if(mAtiv && mAtiv.classList.contains('on')){
+    const id = parseInt(document.getElementById('atId')?.value)||0;
+    if(id) return {tipo:'atividade', id:String(id)};
+  }
+  return {tipo:null, id:null};
+}
+async function _presencaHeartbeat(){
+  try{
+    if(!S.currentUser) return;
+    const session = typeof sbSession==='function' ? await sbSession() : null;
+    if(!session) return;
+    const client = sbClient();
+    const ctx = _presencaContextoAtual();
+    await client.from('presenca_online').upsert({
+      usuario: S.currentUser,
+      nome: _presencaNomeUsuario(S.currentUser),
+      pagina: _presencaPaginaAtual(),
+      item_tipo: ctx.tipo,
+      item_id: ctx.id,
+      ts: new Date().toISOString()
+    });
+  }catch(e){ console.warn('Presença online: heartbeat falhou (ignorado):', e && e.message); }
+}
+async function _presencaPoll(){
+  try{
+    const session = typeof sbSession==='function' ? await sbSession() : null;
+    if(!session){ _presenceOnlineUsers=[]; _renderPresencaOnline(); return; }
+    const client = sbClient();
+    const limite = new Date(Date.now()-30000).toISOString(); // até 30s atrás = "online"
+    const r = await client.from('presenca_online').select('*').gt('ts', limite);
+    if(r.error) throw new Error(r.error.message);
+    const antes = _presenceOnlineUsers;
+    _presenceOnlineUsers = (r.data||[]).filter(p=>p.usuario!==S.currentUser);
+    _renderPresencaOnline();
+    // Se mudou quem está editando alguma atividade, atualiza os badges da lista
+    const chaveEdicao = list => list.map(p=>p.item_tipo+':'+p.item_id).sort().join(',');
+    if(chaveEdicao(antes)!==chaveEdicao(_presenceOnlineUsers) && document.getElementById('pg-atividades')?.classList.contains('on') && typeof renderAtiv==='function'){
+      renderAtiv();
+    }
+  }catch(e){ console.warn('Presença online: consulta falhou (ignorada):', e && e.message); }
+}
+// Busca silenciosa e periódica do estado salvo por outros usuários — mescla
+// no estado local sem interromper quem estiver com um modal de edição aberto
+// (preserva a lista de atividades local enquanto o modal de Atividade estiver na tela).
+async function _pullSilencioso(){
+  try{
+    if(window._syncingSupabase || SB.busy) return;
+    const session = typeof sbSession==='function' ? await sbSession() : null;
+    if(!session) return;
+    const client = sbClient();
+    const r = await client.from('app_state').select('dados').eq('id',SB_ROW_ID).maybeSingle();
+    if(r.error || !r.data || !r.data.dados) return;
+    const cloud = r.data.dados;
+    const modalAtivAberto = document.getElementById('mAtiv')?.classList.contains('on');
+    const atividadesLocais = S.atividades;
+    window._syncingSupabase = true;
+    Object.assign(S, cloud);
+    if(modalAtivAberto) S.atividades = atividadesLocais;
+    localStorage.setItem(SK, JSON.stringify(S));
+    window._syncingSupabase = false;
+    // Re-renderiza só a tela visível, e só se não houver nenhum modal aberto
+    if(!document.querySelector('.ov.on')){
+      const pgAtiva = document.querySelector('.pg.on');
+      const id = pgAtiva ? pgAtiva.id.replace('pg-','') : '';
+      if(id==='atividades' && typeof renderAtiv==='function') renderAtiv();
+      if(id==='presenca' && typeof renderPres==='function') renderPres();
+      if(id==='logs' && typeof renderLogs==='function') renderLogs();
+      if(id==='dashboard' && typeof renderDash==='function') renderDash();
+    }
+    if(typeof _atualizarBotaoDesfazer==='function') _atualizarBotaoDesfazer();
+  }catch(e){ console.warn('Atualização automática silenciosa falhou (ignorada):', e && e.message); window._syncingSupabase=false; }
+}
+function iniciarPresencaMultiusuario(){
+  pararPresencaMultiusuario();
+  _presencaHeartbeat();
+  _presencaPoll();
+  _presenceHeartbeatTimer = setInterval(_presencaHeartbeat, 12000);
+  _presencePollTimer = setInterval(function(){ _presencaPoll(); _pullSilencioso(); }, 10000);
+}
+function pararPresencaMultiusuario(){
+  if(_presenceHeartbeatTimer) clearInterval(_presenceHeartbeatTimer);
+  if(_presencePollTimer) clearInterval(_presencePollTimer);
+  _presenceHeartbeatTimer = null;
+  _presencePollTimer = null;
+  _presenceOnlineUsers = [];
+  _renderPresencaOnline();
+}
+function _renderPresencaOnline(){
+  const pill = document.getElementById('onlineUsersPill');
+  if(!pill) return;
+  const n = _presenceOnlineUsers.length;
+  if(!n){ pill.style.display='none'; return; }
+  pill.style.display='inline-flex';
+  pill.textContent = '🟢 '+n+(n===1?' online':' online');
+  pill.title = _presenceOnlineUsers.map(function(p){
+    const local = p.pagina ? ' — '+p.pagina : '';
+    const editando = p.item_tipo==='atividade' ? ' (editando uma atividade)' : '';
+    return '• '+p.nome+local+editando;
+  }).join('\n');
+}
+// Retorna a marcação "sendo editada por Fulano" para uma atividade, se alguém
+// (que não seja o usuário atual) estiver com o modal dela aberto agora.
+function _presencaBadgeEditando(ativId){
+  const p = _presenceOnlineUsers.find(function(x){ return x.item_tipo==='atividade' && String(x.item_id)===String(ativId); });
+  if(!p) return '';
+  return '<span class="badge" style="background:rgba(56,189,248,.18);color:#38bdf8;font-size:9px;padding:1px 5px;margin-left:4px;border:1px solid rgba(56,189,248,.4);" title="'+p.nome+' está editando esta atividade agora">✏️ '+p.nome.split(' ')[0]+'</span>';
+}
+// Verifica se ITEM já foi salvo por outra pessoa depois de baselineUpTs.
+// campoArray = nome do array dentro de S (ex.: 'atividades'). Retorna null se
+// não há conflito ou se não foi possível verificar (offline etc.).
+async function _verificarConflitoItem(campoArray, id, baselineUpTs){
+  try{
+    const session = typeof sbSession==='function' ? await sbSession() : null;
+    if(!session) return null;
+    const client = sbClient();
+    const r = await client.from('app_state').select(campoArray+':dados->'+campoArray).eq('id', SB_ROW_ID).maybeSingle();
+    if(r.error || !r.data) return null;
+    const arr = r.data[campoArray];
+    if(!Array.isArray(arr)) return null;
+    const cloudItem = arr.find(function(x){ return x.id===id; });
+    if(!cloudItem || !cloudItem._upTs) return null;
+    if(cloudItem._upTs > (baselineUpTs||0) && cloudItem._upBy && cloudItem._upBy!==S.currentUser){
+      return { atualizadoPor:_presencaNomeUsuario(cloudItem._upBy), atualizadoEm:new Date(cloudItem._upTs).toLocaleString('pt-BR') };
+    }
+    return null;
+  }catch(e){ console.warn('Verificação de conflito falhou (ignorada):', e && e.message); return null; }
+}
+// Pequena caixa suspensa de alerta de conflito — Cancelar (mantém a versão da
+// nuvem) ou Sobrescrever mesmo assim (segue com o salvamento local).
+function _mostrarConflitoEdicao(itemLabel, conflito, onSobrescrever, onCancelar){
+  let bg=document.getElementById('modalConflitoBg');
+  if(bg) bg.remove();
+  bg=document.createElement('div');
+  bg.id='modalConflitoBg';
+  bg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:100000;display:flex;align-items:center;justify-content:center;';
+  bg.innerHTML=`<div style="background:var(--surface-2,#161b2c);border:1px solid #ffd000;border-radius:14px;padding:22px 26px;width:440px;max-width:92vw;box-shadow:0 16px 48px rgba(0,0,0,.6);">
+    <div style="font-size:15px;font-weight:800;color:#ffd000;margin-bottom:8px;">⚠️ Atualizado por outro usuário</div>
+    <div style="font-size:12px;color:var(--text-1,#f1f5f9);line-height:1.6;margin-bottom:16px;">
+      <strong>${itemLabel}</strong> recebeu uma atualização mais recente de <strong>${conflito.atualizadoPor}</strong> às <strong>${conflito.atualizadoEm}</strong> — depois que você abriu esta edição.<br><br>
+      Se salvar agora, você vai <strong>sobrescrever</strong> essa atualização mais recente. Deseja continuar mesmo assim?
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="btnConflitoCancelar" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-2,#94a3b8);font-size:12px;font-weight:600;cursor:pointer;">Cancelar e revisar</button>
+      <button id="btnConflitoSobrescrever" style="padding:8px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#ff9f43,#ff4d6d);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Sobrescrever mesmo assim</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  document.getElementById('btnConflitoCancelar').onclick=function(){ bg.remove(); if(onCancelar) onCancelar(); };
+  document.getElementById('btnConflitoSobrescrever').onclick=function(){ bg.remove(); if(onSobrescrever) onSobrescrever(); };
+  bg.addEventListener('click',function(e){ if(e.target===bg){ bg.remove(); if(onCancelar) onCancelar(); } });
+}
+
 function syncSupabase(){
   sbFullSync().catch(function(e){ console.error(e); sbSetStatus('Não conectado','var(--yl)'); if(typeof notif==='function') notif('❌ '+e.message,'er'); });
 }
