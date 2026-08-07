@@ -3360,21 +3360,28 @@ function _aplicarRestricoesAcesso(){
     if(!pgAtiva || (pgAtiva.id!=='pg-atividades' && pgAtiva.id!=='pg-presenca')){
       go('atividades');
     }
-    const u = (S.usuarios||[]).find(x=>x.user.toLowerCase()===(S.currentUser||'').toLowerCase());
-    const pid = u && u.projetoAcesso ? String(u.projetoAcesso) : '';
-    const pNome = pid ? ((S.projetos||[]).find(p=>String(p.id)===pid)?.nome || 'Projeto') : '';
-    ['filAtPj','presPj'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(!el) return;
-      el.innerHTML = pid ? `<option value="${pid}">${pNome}</option>` : '<option value="">Nenhum projeto atribuído</option>';
-      el.value = pid;
-      el.disabled = true;
-    });
+    _travarProjetoVisualizador();
     if(typeof renderAtiv==='function') renderAtiv();
     if(typeof renderPres==='function') renderPres();
   } else {
     ['filAtPj','presPj'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=false; });
   }
+}
+// Trava os filtros de projeto de Atividades/Presença no projeto atribuído
+// ao Visualizador. Precisa ser chamada de novo a cada navegação (não só
+// no login), porque go('atividades'/'presenca') repõe a lista completa
+// de projetos via popAtivSelects()/popPresSelects() a cada visita.
+function _travarProjetoVisualizador(){
+  const u = (S.usuarios||[]).find(x=>x.user.toLowerCase()===(S.currentUser||'').toLowerCase());
+  const pid = u && u.projetoAcesso ? String(u.projetoAcesso) : '';
+  const pNome = pid ? ((S.projetos||[]).find(p=>String(p.id)===pid)?.nome || 'Projeto') : '';
+  ['filAtPj','presPj'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = pid ? `<option value="${pid}">${pNome}</option>` : '<option value="">Nenhum projeto atribuído</option>';
+    el.value = pid;
+    el.disabled = true;
+  });
 }
 function isViewerReadOnly(){
   return (S.currentUserNivel||'').toLowerCase()==='visualizador';
@@ -3582,6 +3589,14 @@ function go(id,btn){
   }
   if(id==='config'){renderFuncList();}
   if(id==='dashboard'){popSelects();renderDash();}
+  // Reaplica o travamento de projeto do Visualizador: os blocos acima
+  // (popAtivSelects/popPresSelects) repõem a lista completa de projetos
+  // a cada navegação, então o travamento precisa rodar por último aqui.
+  if(typeof isViewerReadOnly==='function' && isViewerReadOnly() && typeof _travarProjetoVisualizador==='function'){
+    _travarProjetoVisualizador();
+    if(id==='atividades' && typeof renderAtiv==='function') renderAtiv();
+    if(id==='presenca' && typeof renderPres==='function') renderPres();
+  }
 }
 function swTab(id,btn){
   ['rc','rv'].forEach(t=>{const e=document.getElementById(t);if(e)e.style.display='none';});
@@ -12123,6 +12138,12 @@ function imprimirFolhaPresencaAtual(){
   const pjId=document.getElementById('presPj')?.value||'';
   const data=document.getElementById('presData')?.value||new Date().toISOString().split('T')[0];
   if(!pjId){ notif('Selecione um projeto para imprimir','wn'); return; }
+  // Os campos de fpPj/fpIni/fpFim vivem na página Exportar, que só é
+  // populada quando o usuário visita aquela tela (popExpSelects()). Um
+  // Visualizador nunca visita Exportar, então fpPj fica sem <option>
+  // correspondente e "value=pjId" falha silenciosamente — por isso
+  // populamos aqui antes de usar os campos.
+  if(typeof popExpSelects==='function') popExpSelects();
   const fpPj=document.getElementById('fpPj'); if(fpPj) fpPj.value=pjId;
   const fpIni=document.getElementById('fpIni'); if(fpIni) fpIni.value=data;
   const fpFim=document.getElementById('fpFim'); if(fpFim) fpFim.value=data;
