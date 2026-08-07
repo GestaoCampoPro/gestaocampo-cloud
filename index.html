@@ -1021,6 +1021,19 @@ body.light-mode .srch input{color:var(--text-1)}
 body.light-mode .modal{background:#fff;border-color:var(--border-strong);box-shadow:0 20px 60px rgba(0,0,0,.15)}
 body.light-mode .mh{background:rgba(124,58,237,.03)}
 body.light-mode .mf{background:rgba(0,0,0,.03)}
+
+/* ═══ RESTRIÇÃO DO PERFIL VISUALIZADOR — só Atividades e Presença ═══ */
+body.viewer-lock #sbNav .ns,
+body.viewer-lock #sbNav>button.nb,
+body.viewer-lock #sbNav>.nb-has-submenu{display:none!important;}
+body.viewer-lock #sbNav>button.nb[onclick^="go('atividades'"],
+body.viewer-lock #sbNav>button.nb[onclick^="go('presenca'"]{display:flex!important;}
+body.viewer-lock #pg-atividades button[onclick^="abrirAtiv("],
+body.viewer-lock #pg-atividades button[onclick^="delAtiv("],
+body.viewer-lock #pg-presenca button[onclick="salvarPres()"],
+body.viewer-lock #pg-presenca button[onclick^="marcarTodosVisiveis("]{display:none!important;}
+body.viewer-lock #pg-atividades select[onchange^="mudaStatusAtiv("],
+body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
@@ -1313,6 +1326,7 @@ body.light-mode .mf{background:rgba(0,0,0,.03)}
       <button class="btn" onclick="navegarPresData(1)" title="Próximo dia" style="padding:6px 10px;">▶</button>
       <button class="btn" onclick="document.getElementById('presData').value=new Date().toISOString().split('T')[0];renderPres();" title="Voltar para hoje" style="padding:6px 10px;font-size:11px;">📅 Hoje</button>
       <button class="btn prim" onclick="salvarPres()">💾 Salvar</button>
+      <button class="btn" onclick="imprimirFolhaPresencaAtual()">🖨️ Imprimir</button>
     </div>
     <div class="g2" style="margin-bottom:12px;">
       <div class="card">
@@ -1824,7 +1838,7 @@ body.light-mode .mf{background:rgba(0,0,0,.03)}
         </div>
         <div class="tw" style="border:none">
           <table id="tbUsuarios">
-            <thead><tr><th>Nome</th><th>Login</th><th>Nível</th><th>Criado em</th><th style="text-align:right">Ações</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Login</th><th>Nível</th><th>Projeto (Visualizador)</th><th>Criado em</th><th style="text-align:right">Ações</th></tr></thead>
             <tbody id="tbUsuariosBody"></tbody>
           </table>
         </div>
@@ -1880,6 +1894,11 @@ body.light-mode .mf{background:rgba(0,0,0,.03)}
       </div>
       <div style="font-size:10.5px;color:var(--t3);margin-top:-4px;padding:8px 10px;background:var(--bg3);border:1px solid var(--b1);border-radius:7px" id="rnivelDesc">
         <b style="color:var(--t2)">Gestor:</b> cria e edita projetos, colaboradores, atividades e gera relatórios.
+      </div>
+      <div class="fg" id="rProjetoWrap" style="display:none;">
+        <label class="fl">Projeto com Acesso</label>
+        <select class="fi" id="rProjeto"><option value="">Selecione um projeto...</option></select>
+        <div style="font-size:10px;color:var(--t3);margin-top:3px;">O Visualizador só acessa Atividades e Presença, restrito a este projeto.</div>
       </div>
       <div class="mf">
         <button class="btn" onclick="fechar('mNovoUsr')">Cancelar</button>
@@ -3131,6 +3150,7 @@ function abrirNovoUsuario(){
   // limpa o formulário
   ['rnome','rusr','rpwd','rpwd2'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const sel=document.getElementById('rnivel'); if(sel) sel.value='gestor';
+  const rp=document.getElementById('rProjeto'); if(rp) rp.value='';
   _atualizarDescNivel();
   document.getElementById('mNovoUsr').classList.add('on');
   setTimeout(()=>{ const el=document.getElementById('rnome'); if(el) el.focus(); },60);
@@ -3140,11 +3160,23 @@ function _atualizarDescNivel(){
     admin:'<b style="color:var(--t2)">Administrador:</b> controle total — usuários, configurações, todos os projetos, exclusões e relatórios.',
     gestor:'<b style="color:var(--t2)">Gestor:</b> cria e edita projetos, colaboradores, atividades e gera relatórios. Não altera configurações do sistema.',
     operador:'<b style="color:var(--t2)">Operador:</b> lança presença, atualiza atividades e registra dados de campo. Sem exclusões.',
-    visualizador:'<b style="color:var(--t2)">Visualizador:</b> acesso somente leitura — consulta dashboards, projetos e relatórios, sem editar.'
+    visualizador:'<b style="color:var(--t2)">Visualizador:</b> acesso somente leitura, restrito a um único projeto. Só entra nas telas de Atividades e Presença (visualizar + imprimir).'
   };
   const sel=document.getElementById('rnivel');
   const desc=document.getElementById('rnivelDesc');
   if(sel && desc) desc.innerHTML = map[sel.value] || '';
+  const wrap=document.getElementById('rProjetoWrap');
+  const projSel=document.getElementById('rProjeto');
+  if(wrap && projSel){
+    if(sel && sel.value==='visualizador'){
+      wrap.style.display='';
+      const cur=projSel.value;
+      projSel.innerHTML='<option value="">Selecione um projeto...</option>'+(S.projetos||[]).map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+      if(cur) projSel.value=cur;
+    } else {
+      wrap.style.display='none';
+    }
+  }
 }
 function registrarUsuario(){
   if(!isAdmin()){
@@ -3160,9 +3192,14 @@ function registrarUsuario(){
   if(!/^[a-z0-9._-]{3,}$/.test(user)){ alert('Usuário inválido.\n\nUse 3+ caracteres: letras minúsculas, números, ponto, hífen ou underline.'); return; }
   if(pwd.length<6){ alert('A senha deve ter no mínimo 6 caracteres.'); return; }
   if(pwd!==pwd2){ alert('As senhas não conferem.'); return; }
+  let projetoAcesso='';
+  if(nivel==='visualizador'){
+    projetoAcesso=(document.getElementById('rProjeto')?.value||'').trim();
+    if(!projetoAcesso){ alert('Selecione o projeto que este Visualizador poderá acessar.'); return; }
+  }
   _ensureAdminSeed();
   if(S.usuarios.find(x=>x.user.toLowerCase()===user)){ alert('Já existe um usuário com este login. Escolha outro.'); return; }
-  S.usuarios.push({user, pass:pwd, nome, nivel, criadoEm:new Date().toISOString(), criadoPor:S.currentUser||'admin'});
+  S.usuarios.push({user, pass:pwd, nome, nivel, projetoAcesso, criadoEm:new Date().toISOString(), criadoPor:S.currentUser||'admin'});
   try{ localStorage.setItem(SK, JSON.stringify(S)); }catch(e){}
   if(typeof log==='function') log('Usuário criado: '+user+' ('+NIVEL_ACESSO_LABELS[nivel]+')','👥');
   alert('✅ Usuário criado com sucesso!\n\n'+nome+' ('+NIVEL_ACESSO_LABELS[nivel]+')\nLogin: '+user);
@@ -3263,16 +3300,32 @@ function renderUsuariosList(){
     const nomeCol = (u.nome||'—') + (u.user.toLowerCase()==='admin' ? ' <span class="badge bb" style="margin-left:6px">Sistema</span>' : '');
     const meLabel = u.user.toLowerCase()===(S.currentUser||'').toLowerCase() ? ' <span class="badge bg" style="margin-left:6px">você</span>' : '';
     const canDelete = (u.user.toLowerCase()!=='admin' && u.user.toLowerCase()!==(S.currentUser||'').toLowerCase());
+    const projCol = u.nivel==='visualizador'
+      ? `<select class="fi" style="margin:0;padding:4px 6px;font-size:11px;min-width:140px" onchange="alterarProjetoUsuario('${u.user}', this.value)">
+          <option value="">Selecione...</option>
+          ${(S.projetos||[]).map(p=>`<option value="${p.id}" ${String(u.projetoAcesso)===String(p.id)?'selected':''}>${p.nome}</option>`).join('')}
+        </select>`
+      : '<span style="font-size:10px;color:var(--t3)">—</span>';
     return `<tr>
       <td class="b">${nomeCol}${meLabel}</td>
       <td>${u.user}</td>
       <td>${nivelSel}</td>
+      <td>${projCol}</td>
       <td>${dt}</td>
       <td style="text-align:right">
         ${canDelete ? `<button class="btn xs dang" onclick="removerUsuario('${u.user}')">🗑️ Excluir</button>` : '<span style="font-size:10px;color:var(--t3)">—</span>'}
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty">Nenhum usuário cadastrado.</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="empty">Nenhum usuário cadastrado.</td></tr>';
+}
+function alterarProjetoUsuario(user, projetoId){
+  if(!isAdmin()){ alert('⛔ Acesso restrito ao Administrador.'); return; }
+  const u = S.usuarios.find(x=>x.user.toLowerCase()===user.toLowerCase());
+  if(!u) return;
+  u.projetoAcesso = projetoId;
+  try{ localStorage.setItem(SK, JSON.stringify(S)); }catch(e){}
+  if(typeof log==='function') log('Projeto de acesso alterado: '+user+' → '+((S.projetos||[]).find(p=>String(p.id)===String(projetoId))?.nome||'—'),'🔧');
+  if(typeof notif==='function') notif('Projeto de acesso atualizado.','ok');
 }
 function _aplicarRestricoesAcesso(){
   // Oculta o item "Usuários" da sidebar para não-administradores
@@ -3292,6 +3345,46 @@ function _aplicarRestricoesAcesso(){
     if(denied) denied.style.display='block';
     if(adminArea) adminArea.style.display='none';
   }
+
+  // Restrição exclusiva do perfil Visualizador: só acessa Atividades e
+  // Presença, travado no projeto que o admin definiu para ele. O grosso
+  // da restrição visual (nav, botões de editar) é feito via CSS
+  // (classe body.viewer-lock) para sobreviver a re-renderizações.
+  const isViewer = isViewerReadOnly();
+  document.body.classList.toggle('viewer-lock', isViewer);
+  if(isViewer){
+    // Garante que o visualizador cai numa das 2 telas permitidas ANTES de
+    // travar o filtro de projeto — go() chama popAtivSelects()/popPresSelects()
+    // internamente, que repõem a lista completa de projetos.
+    const pgAtiva = document.querySelector('.pg.on');
+    if(!pgAtiva || (pgAtiva.id!=='pg-atividades' && pgAtiva.id!=='pg-presenca')){
+      go('atividades');
+    }
+    const u = (S.usuarios||[]).find(x=>x.user.toLowerCase()===(S.currentUser||'').toLowerCase());
+    const pid = u && u.projetoAcesso ? String(u.projetoAcesso) : '';
+    const pNome = pid ? ((S.projetos||[]).find(p=>String(p.id)===pid)?.nome || 'Projeto') : '';
+    ['filAtPj','presPj'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      el.innerHTML = pid ? `<option value="${pid}">${pNome}</option>` : '<option value="">Nenhum projeto atribuído</option>';
+      el.value = pid;
+      el.disabled = true;
+    });
+    if(typeof renderAtiv==='function') renderAtiv();
+    if(typeof renderPres==='function') renderPres();
+  } else {
+    ['filAtPj','presPj'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=false; });
+  }
+}
+function isViewerReadOnly(){
+  return (S.currentUserNivel||'').toLowerCase()==='visualizador';
+}
+function _bloquearSeVisualizador(){
+  if(isViewerReadOnly()){
+    if(typeof notif==='function') notif('👁️ Seu perfil tem acesso somente leitura.','wn');
+    return true;
+  }
+  return false;
 }
 // Atualiza descrição do nível ao mudar select (registra listener depois que DOM estiver pronto)
 document.addEventListener('DOMContentLoaded',()=>{
@@ -3415,6 +3508,11 @@ function go(id,btn){
   // Bloqueio: a página de Usuários é exclusiva do Administrador
   if(id==='usuarios' && typeof isAdmin==='function' && !isAdmin()){
     alert('⛔ Acesso negado.\n\nA área de Usuários é exclusiva para Administradores.');
+    return;
+  }
+  // Bloqueio: perfil Visualizador só acessa Atividades e Presença
+  if(typeof isViewerReadOnly==='function' && isViewerReadOnly() && id!=='atividades' && id!=='presenca'){
+    alert('⛔ Acesso negado.\n\nSeu perfil (Visualizador) só tem acesso às telas de Atividades e Presença.');
     return;
   }
   document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
@@ -4344,6 +4442,7 @@ function atualizarStatusAtividadesVencidas(){
 // ATIVIDADES
 // ═══════════════════════════════════════════
 function abrirAtiv(id){
+  if(_bloquearSeVisualizador())return;
   document.getElementById('mAtTit').textContent='📋 Nova Atividade';
   document.getElementById('atId').value='';
   ['atNome','atSet','atDesc','atIni','atFim','atIntMin','atIntDesc'].forEach(x=>document.getElementById(x).value='');
@@ -4479,6 +4578,7 @@ function validarAlteracaoAtrasada(a, callback){
 }
 
 function salvarAtiv(){
+  if(_bloquearSeVisualizador())return;
   const nome=document.getElementById('atNome').value.trim();
   const pjId=document.getElementById('atPj').value;
   if(!nome||!pjId){notif('Nome e projeto obrigatórios','er');return;}
@@ -4691,6 +4791,7 @@ function onStatusAtivChange(){
 
 // Quando status muda na linha da tabela — auto-preenche datas reais e salva
 function mudaStatusAtiv(id, novoStatus){
+  if(_bloquearSeVisualizador())return;
   const a = S.atividades.find(x => x.id === id);
   if(!a) return;
   const hojeISO = new Date().toISOString().split('T')[0];
@@ -4738,6 +4839,7 @@ function mudaStatusAtiv(id, novoStatus){
 }
 
 function delAtiv(id){
+  if(_bloquearSeVisualizador())return;
   const a=S.atividades.find(x=>x.id===id);
   if(!a)return;
 
@@ -5095,6 +5197,7 @@ function _renderDkEquipe(){
 
 // Marca todos os chips visíveis (filtro ativo) como o status desejado
 function marcarTodosVisiveis(status){
+  if(_bloquearSeVisualizador())return;
   const pjId = document.getElementById('presPj')?.value;
   const data  = document.getElementById('presData')?.value||new Date().toISOString().split('T')[0];
   if(!pjId){ notif('Selecione um projeto','wn'); return; }
@@ -5167,6 +5270,7 @@ function renderPres(){
   updPresStats(p,a,af,f,fc,ab);
 }
 function togglePres(pjId,data,colabId,cur){
+  if(_bloquearSeVisualizador())return;
   const k=String(pjId)+'_'+data;
   if(!S.presencas[k])S.presencas[k]={};
   const ord=['presente','ausente','afastado','ferias','folga_campo','abonar'];
@@ -5211,6 +5315,7 @@ function fecharModalAbonar(){
   if(bg)bg.remove();
 }
 function confirmarAbonar(pjId,data,colabId,k){
+  if(_bloquearSeVisualizador())return;
   const motivo=(document.getElementById('abonarMotivo')?.value||'').trim();
   if(!motivo){notif('Informe o motivo do abono','wn');return;}
   if(!S.presencas[k])S.presencas[k]={};
@@ -5242,6 +5347,7 @@ function navegarPresData(delta){
   renderPres();
 }
 function salvarPres(){
+  if(_bloquearSeVisualizador())return;
   // Sincroniza Dashboard com a data atual da Presença ao salvar
   const presData = document.getElementById('presData')?.value || new Date().toISOString().split('T')[0];
   const dkData = document.getElementById('dkData');
@@ -12011,6 +12117,17 @@ function updLogoOpacity(which, val){
 // ═══════════════════════════════════════════
 // FIX 4: FOLHA DE PONTO
 // ═══════════════════════════════════════════
+// Atalho de impressão direto da tela de Presença: usa o projeto/data já
+// selecionados ali e gera a Folha de Ponto (mesmo relatório do Exportar).
+function imprimirFolhaPresencaAtual(){
+  const pjId=document.getElementById('presPj')?.value||'';
+  const data=document.getElementById('presData')?.value||new Date().toISOString().split('T')[0];
+  if(!pjId){ notif('Selecione um projeto para imprimir','wn'); return; }
+  const fpPj=document.getElementById('fpPj'); if(fpPj) fpPj.value=pjId;
+  const fpIni=document.getElementById('fpIni'); if(fpIni) fpIni.value=data;
+  const fpFim=document.getElementById('fpFim'); if(fpFim) fpFim.value=data;
+  gerarFolhaPonto();
+}
 function gerarFolhaPonto(){
   const pjId=(document.getElementById('fpPj')?.value||'').trim();
   const ini=document.getElementById('fpIni')?.value||'';
