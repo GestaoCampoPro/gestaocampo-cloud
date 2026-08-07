@@ -5630,7 +5630,7 @@ function imprimirDashboard(){
     <div>Gerado em ${nowFmt}</div>
   </div>
 
-  '<scr'+'ipt>document.fonts.ready.then(()=>setTimeout(()=>window.print(),700));</scr'+'ipt>'
+  <script>document.fonts.ready.then(()=>setTimeout(()=>window.print(),700));<\/script>
   </body></html>`);
   w.document.close();
 }
@@ -6067,7 +6067,9 @@ function imprimirImpactos(){
 
   if(!list.length){ notif('Nenhuma interferência registrada para imprimir','wn'); return; }
 
-  const tc=getThemeColors();
+  // Layout sempre branco, independente do tema ativo no sistema (mesmos
+  // moldes/cores do relatório "Controle de Campo").
+  const tc={bg:'#fff',bg2:'#f8fafc',bg3:'#f1f5f9',card:'#fff',b1:'#e2e8f0',t1:'#0a1628',t2:'#475569',t3:'#94a3b8',ac:'#0a1628',gn:'#16a34a',rd:'#FF4D6D',yl:'#d97706',pu:'#7c3aed'};
   const css=printCSS(tc);
 
   let h=`<div class="hdr">
@@ -6139,7 +6141,7 @@ function imprimirImpactos(){
   w.document.write(`<html><head><meta charset="UTF-8"><title>Relatório de Impactos — ${pjNome}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>${css}</style></head><body>${h}
-    '<scr'+'ipt>document.fonts.ready.then(()=>setTimeout(()=>window.print(),500));</scr'+'ipt>'
+    <script>document.fonts.ready.then(()=>setTimeout(()=>window.print(),500));<\/script>
     </body></html>`);
   w.document.close();
   log('Relatório de Impactos impresso: '+pjNome,'⚠️');
@@ -12194,7 +12196,7 @@ function gerarFolhaPonto(){
     <span><span style="color:#0ea5e9;font-weight:700;">Ab</span> = Abonado</span>
     <span>— = Sem registro</span>
   </div>
-  '<scr'+'ipt>document.fonts.ready.then(()=>setTimeout(()=>window.print(),500));</scr'+'ipt>'
+  <script>document.fonts.ready.then(()=>setTimeout(()=>window.print(),500));<\/script>
   </body></html>`;
   w.document.write(markup);
   w.document.close();
