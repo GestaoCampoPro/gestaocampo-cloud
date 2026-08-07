@@ -1753,6 +1753,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
       </div>
       <div style="display:flex;align-items:center;gap:8px;">
         <div id="logCountBadge" style="background:rgba(0,200,240,.12);border:1px solid rgba(0,200,240,.25);border-radius:20px;padding:3px 10px;font-size:10px;font-weight:700;color:var(--ac);">0 registros</div>
+        <button class="btn sm" id="btnDesfazerLog" style="display:none;color:var(--yl);border-color:var(--yl);" onclick="desfazerUltimaAcao()">↩️ Desfazer última ação</button>
         <button class="btn sm" onclick="exportarLogs()">📤 Exportar</button>
         <button class="btn sm" style="color:var(--rd);border-color:var(--rd);" onclick="limparLogs()">🗑️ Limpar</button>
       </div>
@@ -3345,6 +3346,7 @@ function _aplicarRestricoesAcesso(){
     if(denied) denied.style.display='block';
     if(adminArea) adminArea.style.display='none';
   }
+  if(typeof _atualizarBotaoDesfazer==='function') _atualizarBotaoDesfazer();
 
   // Restrição exclusiva do perfil Visualizador: só acessa Atividades e
   // Presença, travado no projeto que o admin definiu para ele. O grosso
@@ -3634,10 +3636,18 @@ function notif(msg,type='ok'){
 // LOG
 // ═══════════════════════════════════════════
 function log(msg,icon='📌'){
+  // Captura o estado gravado ANTES desta ação (ainda no localStorage, já que
+  // a mutação em memória feita pela ação já ocorreu mas ainda não foi salva)
+  // para permitir ao Administrador desfazer só esta última ação.
+  try{
+    const prevRaw = localStorage.getItem(SK);
+    if(prevRaw){ _undoSnapshot = prevRaw; _undoActionDesc = msg; }
+  }catch(e){}
   const u = S.usuarios?.find(x=>x.user.toLowerCase()===(S.currentUser||'').toLowerCase());
   S.logs.unshift({msg,icon,ts:new Date().toLocaleString('pt-BR'),id:Date.now(),usuario:S.currentUser||'—',usuarioNome:u?.nome||S.currentUser||'—'});
   if(S.logs.length>200)S.logs.pop();
   save();
+  if(typeof _atualizarBotaoDesfazer==='function') _atualizarBotaoDesfazer();
 }
 function renderLogs(){
   const srch  = (document.getElementById('srLog')?.value||'').toLowerCase();
@@ -3709,6 +3719,50 @@ function renderLogs(){
       </div>`:''}
     </div>`;
   } else if(stats){ stats.style.display='none'; }
+  _atualizarBotaoDesfazer();
+}
+
+// Atualiza visibilidade/estado do botão "Desfazer última ação" (só Administrador)
+function _atualizarBotaoDesfazer(){
+  const btn = document.getElementById('btnDesfazerLog');
+  if(!btn) return;
+  if(typeof isAdmin!=='function' || !isAdmin()){ btn.style.display='none'; return; }
+  btn.style.display='inline-flex';
+  btn.disabled = !_undoSnapshot;
+  btn.title = _undoSnapshot ? ('Desfazer: '+_undoActionDesc) : 'Nenhuma ação recente para desfazer';
+  btn.style.opacity = _undoSnapshot ? '1' : '.45';
+  btn.style.cursor = _undoSnapshot ? 'pointer' : 'not-allowed';
+}
+
+// Desfaz a última ação registrada, restaurando o estado anterior a ela.
+// Exclusivo do Administrador — funciona uma única vez (não é um histórico
+// de múltiplos níveis): cada nova ação registrada em log() substitui o
+// snapshot disponível para desfazer.
+async function desfazerUltimaAcao(){
+  if(typeof isAdmin!=='function' || !isAdmin()){ if(typeof notif==='function') notif('Apenas o Administrador pode desfazer ações.','er'); return; }
+  if(!_undoSnapshot){ if(typeof notif==='function') notif('Não há ação recente para desfazer.','wn'); return; }
+  const desc = _undoActionDesc || 'última ação';
+  if(!confirm('Desfazer a ação:\n"'+desc+'"\n\nO sistema voltará ao estado anterior a essa ação. Deseja continuar?')) return;
+  try{
+    const restored = JSON.parse(_undoSnapshot);
+    Object.keys(S).forEach(k=>delete S[k]);
+    Object.assign(S, restored);
+    _undoSnapshot = null;
+    _undoActionDesc = null;
+    save();
+    try{
+      const session = typeof sbSession==='function' ? await sbSession() : null;
+      if(session && typeof sbPushState==='function') await sbPushState();
+    }catch(e){ console.warn('Desfazer: não foi possível sincronizar com a nuvem agora:', e && e.message); }
+    if(typeof notif==='function') notif('✅ Ação desfeita: '+desc,'ok');
+    const pgAtiva = document.querySelector('.pg.on');
+    const id = pgAtiva ? pgAtiva.id.replace('pg-','') : 'logs';
+    if(typeof go==='function') go(id);
+    _atualizarBotaoDesfazer();
+  }catch(e){
+    console.error('Erro ao desfazer ação:', e);
+    if(typeof notif==='function') notif('❌ Erro ao desfazer ação.','er');
+  }
 }
 
 function limparLogs(){
@@ -9021,6 +9075,11 @@ function imprimirOrg(){
 let _saveCounter = 0;
 let _lastSaveOk = true;
 let _lastSaveTs = 0;
+// Snapshot do estado imediatamente anterior à última ação registrada em log,
+// usado apenas para permitir ao Administrador desfazer a última ação (não é
+// sincronizado com a nuvem nem persistido — vive só na sessão atual).
+let _undoSnapshot = null;
+let _undoActionDesc = null;
 function _setSaveStatus(state){
   // state: 'ok' | 'pending' | 'err'
   const el = document.getElementById('saveStatusPill');
