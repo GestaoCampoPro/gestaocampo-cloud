@@ -1363,7 +1363,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
           <span style="font-size:10px;color:var(--t3);font-weight:600;">Disciplina:</span>
           <button class="btn xs on" id="presFiltTodos" onclick="resetPresDisc()" style="font-size:10px;border-radius:14px;">Todas</button>
           <div id="presFiltBtns" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
-          <button class="btn xs" onclick="adicionarDisciplinaRegistrada()" title="Cadastrar nova disciplina para aparecer aqui como filtro" style="color:var(--ac);border-color:var(--ac);font-size:10px;padding:3px 8px;border-radius:14px;">➕</button>
+          <button class="btn xs" onclick="adicionarDisciplinaRegistrada()" title="Gerenciar disciplinas cadastradas (adicionar/remover)" style="color:var(--ac);border-color:var(--ac);font-size:10px;padding:3px 8px;border-radius:14px;">➕</button>
           <button class="btn xs" onclick="marcarTodosVisiveis('presente')" title="Marcar todos visíveis como Presente" style="color:var(--gn);border-color:var(--gn);font-size:10px;margin-left:4px;">✅ Todos pres.</button>
         </div>
       </div>
@@ -4190,7 +4190,9 @@ function abrirColab(id){
   document.getElementById('colData').value='';
   document.getElementById('colCam').value='M';
   document.getElementById('colSt').value='Ativo';
-  document.getElementById('colDisc').value='';
+  // Popula o select de Disciplina com o catálogo atual (S.disciplinas) —
+  // assim qualquer disciplina cadastrada pelo ➕ na Presença já aparece aqui
+  _popColDiscSelect('');
   popSelects(); popRespSelect('');
   document.getElementById('colPj').value='';
   document.getElementById('colResp').value='';
@@ -4219,10 +4221,11 @@ function abrirColab(id){
     popRespSelect(c.id);
     document.getElementById('colResp').value=c.responsavel||'';
     document.getElementById('colObs').value=c.obs||'';
-    // Restaura disciplina
+    // Restaura disciplina — se estiver no catálogo (S.disciplinas), seleciona
+    // no select; senão (disciplina digitada livre, fora do catálogo), cai no
+    // campo de texto customizado
     const disc=c.disciplina||'';
-    const predefs=['Elétrica','Mecânica','Tubulação','Civil','Instrumentação','Automação','Caldeiraria','Pintura','Segurança','Administrativo','Outra'];
-    if(predefs.includes(disc)){
+    if(disc && (S.disciplinas||[]).includes(disc)){
       document.getElementById('colDisc').value=disc;
       document.getElementById('colDiscCustom').value='';
     } else {
@@ -4292,6 +4295,18 @@ function atualizarInfoFuncao(){
   }
 }
 
+// Popula o <select> de Disciplina do cadastro de Colaborador com o catálogo
+// atual (S.disciplinas) — reflete na hora qualquer disciplina cadastrada
+// pelo ➕ da tela de Presença.
+function _popColDiscSelect(selecionada){
+  const sel=document.getElementById('colDisc');
+  if(!sel) return;
+  const lista=(S.disciplinas||[]).slice().sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'}));
+  sel.innerHTML='<option value="">Selecione ou digite abaixo</option>'
+    + lista.map(d=>`<option>${d}</option>`).join('')
+    + '<option>Outra</option>';
+  if(selecionada) sel.value=selecionada;
+}
 function _popDiscDl(){
   // Popula datalist com disciplinas registradas (lista mestra + já usadas por colaboradores)
   const discs=[...new Set([...(S.disciplinas||[]), ...S.colaboradores.map(c=>c.disciplina||'').filter(Boolean)])]
@@ -5194,37 +5209,96 @@ function _inicializarDisciplinas(){
     if(d && !S.disciplinas.includes(d)) S.disciplinas.push(d);
   });
 }
-// Cadastra uma nova disciplina na lista mestra, para aparecer como filtro
-// (mesmo antes de qualquer colaborador ser marcado com ela).
+// ── Gerenciar disciplinas (catálogo S.disciplinas) — caixa suspensa com
+// adicionar/remover. O catálogo alimenta o select de Disciplina no cadastro
+// de Colaborador; um item só vira chip de filtro na Presença quando algum
+// colaborador estiver de fato marcado com ele (ver _getDiscs/_buildDiscChips).
 function adicionarDisciplinaRegistrada(){
-  const nome=(prompt('Nome da nova disciplina (ex.: Andaime, Solda Especial):')||'').trim();
-  if(!nome) return;
+  if(!Array.isArray(S.disciplinas)) S.disciplinas=[];
+  let bg=document.getElementById('modalDisciplinasBg');
+  if(bg) bg.remove();
+  bg=document.createElement('div');
+  bg.id='modalDisciplinasBg';
+  bg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  bg.innerHTML=`<div style="background:var(--surface-2,#161b2c);border:1px solid var(--border-strong,rgba(255,255,255,.13));border-radius:14px;padding:22px 24px;width:380px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.6);">
+    <div style="font-size:15px;font-weight:700;color:var(--text-1,#f1f5f9);margin-bottom:4px;">🏷️ Disciplinas cadastradas</div>
+    <div style="font-size:11px;color:var(--text-2,#94a3b8);margin-bottom:14px;">Ficam disponíveis para escolher no cadastro de Colaborador. Só aparecem como filtro na Presença depois que algum colaborador for marcado com elas.</div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;">
+      <input id="novaDisciplinaInput" placeholder="Nova disciplina..." style="flex:1;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-1,#f1f5f9);padding:8px 10px;font-size:12px;outline:none;">
+      <button onclick="_adicionarDisciplinaCatalogo()" style="padding:8px 14px;border-radius:8px;border:none;background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Adicionar</button>
+    </div>
+    <div id="listaDisciplinasCatalogo" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:4px;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+      <button onclick="fecharGerenciarDisciplinas()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-2,#94a3b8);font-size:12px;font-weight:600;cursor:pointer;">Fechar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener('click',e=>{if(e.target===bg)fecharGerenciarDisciplinas();});
+  _renderListaDisciplinasCatalogo();
+  setTimeout(()=>{
+    const inp=document.getElementById('novaDisciplinaInput');
+    inp?.focus();
+    inp?.addEventListener('keydown',e=>{if(e.key==='Enter')_adicionarDisciplinaCatalogo();});
+  },100);
+}
+function fecharGerenciarDisciplinas(){
+  document.getElementById('modalDisciplinasBg')?.remove();
+}
+function _renderListaDisciplinasCatalogo(){
+  const el=document.getElementById('listaDisciplinasCatalogo');
+  if(!el)return;
+  const lista=(S.disciplinas||[]).slice().sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'}));
+  if(!lista.length){el.innerHTML='<div style="font-size:11px;color:var(--text-2,#94a3b8);padding:8px 0;">Nenhuma disciplina cadastrada ainda.</div>';return;}
+  el.innerHTML=lista.map(d=>{
+    const emUso=(S.colaboradores||[]).filter(c=>(c.disciplina||'').trim()===d).length;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;background:var(--surface-3,#1f2638);">
+      <span style="font-size:12px;color:var(--text-1,#f1f5f9);">${d}${emUso?` <span style="font-size:9px;color:var(--text-2,#94a3b8);">(${emUso} colab.)</span>`:''}</span>
+      <button onclick="_removerDisciplinaCatalogo('${d.replace(/'/g,"\\'")}')" title="Remover disciplina" style="border:none;background:transparent;color:#f43f5e;font-size:14px;cursor:pointer;padding:2px 6px;line-height:1;">✕</button>
+    </div>`;
+  }).join('');
+}
+function _adicionarDisciplinaCatalogo(){
+  const inp=document.getElementById('novaDisciplinaInput');
+  const nome=(inp?.value||'').trim();
+  if(!nome){ notif('Digite o nome da disciplina.','wn'); return; }
   if(!Array.isArray(S.disciplinas)) S.disciplinas=[];
   if(S.disciplinas.some(d=>d.toLowerCase()===nome.toLowerCase())){
     notif('Essa disciplina já está cadastrada.','wn');
     return;
   }
   S.disciplinas.push(nome);
-  S.disciplinas.sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'}));
   save();
   if(typeof log==='function') log('Disciplina cadastrada: '+nome,'🏷️');
-  if(typeof renderPres==='function') renderPres();
-  notif('Disciplina "'+nome+'" adicionada ao filtro de Presença.','ok');
+  if(inp) inp.value='';
+  _renderListaDisciplinasCatalogo();
+  notif('Disciplina "'+nome+'" cadastrada.','ok');
+}
+function _removerDisciplinaCatalogo(nome){
+  const emUso=(S.colaboradores||[]).filter(c=>(c.disciplina||'').trim()===nome).length;
+  const aviso=emUso
+    ? `A disciplina "${nome}" está em uso por ${emUso} colaborador(es) — eles continuam com ela, só sai da lista para novos cadastros. Remover mesmo assim?`
+    : `Remover a disciplina "${nome}" do catálogo?`;
+  if(!confirm(aviso)) return;
+  S.disciplinas=(S.disciplinas||[]).filter(d=>d!==nome);
+  save();
+  if(typeof log==='function') log('Disciplina removida: '+nome,'🏷️');
+  _renderListaDisciplinasCatalogo();
+  notif('Disciplina "'+nome+'" removida do catálogo.','ok');
 }
 
 function _getDiscs(cols){
   return [...new Set(cols.map(c=>(c.disciplina||'').trim()).filter(Boolean))].sort();
 }
 
-// Monta chips de disciplina com multi-select. Se incluirRegistradas=true,
-// mostra também as disciplinas da lista mestra (S.disciplinas) mesmo que
-// nenhum colaborador do grupo atual as tenha ainda (usado na Presença, para
-// que uma disciplina recém-cadastrada já apareça como filtro disponível).
-function _buildDiscChips(cols, containerId, activeSet, toggleFn, resetFn, incluirRegistradas){
+// Monta chips de disciplina com multi-select — só disciplinas que pelo
+// menos um colaborador do grupo atual realmente tem (ver _getDiscs). O
+// cadastro/remoção de disciplinas no catálogo (S.disciplinas) é feito à
+// parte, pelo botão ➕ (ver abrirGerenciarDisciplinas), e só vira um chip
+// aqui quando alguém for de fato marcado com ela num Colaborador.
+function _buildDiscChips(cols, containerId, activeSet, toggleFn, resetFn){
   const el=document.getElementById(containerId);
   if(!el)return;
-  let discs=_getDiscs(cols);
-  if(incluirRegistradas) discs=[...new Set([...(S.disciplinas||[]), ...discs])].sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'}));
+  const discs=_getDiscs(cols);
   if(!discs.length){el.innerHTML='<span style="font-size:10px;color:var(--t3);">Sem disciplinas cadastradas</span>';return;}
   el.innerHTML=discs.map(d=>{
     const on=activeSet.has(d);
@@ -5372,8 +5446,8 @@ function renderPres(){
     .slice().sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR',{sensitivity:'base'}));
   if(!allCols.length){grid.innerHTML='<div class="empty" style="width:100%"><div class="ei">👷</div><p>Sem colaboradores neste projeto</p></div>';return;}
 
-  // Popula chips de disciplina (inclui disciplinas registradas sem colaborador ainda)
-  _buildDiscChips(allCols,'presFiltBtns',_presDiscFiltrs,'togglePresDisc','resetPresDisc',true);
+  // Popula chips de disciplina — só as que têm colaborador de fato (ver _getDiscs)
+  _buildDiscChips(allCols,'presFiltBtns',_presDiscFiltrs,'togglePresDisc','resetPresDisc');
   document.getElementById('presFiltTodos')?.classList.toggle('on',_presDiscFiltrs.size===0);
 
   // Aplica filtro de disciplinas
