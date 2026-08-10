@@ -1899,9 +1899,12 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
         <b style="color:var(--t2)">Gestor:</b> cria e edita projetos, colaboradores, atividades e gera relatórios.
       </div>
       <div class="fg" id="rProjetoWrap" style="display:none;">
-        <label class="fl">Projeto com Acesso</label>
-        <select class="fi" id="rProjeto"><option value="">Selecione um projeto...</option></select>
-        <div style="font-size:10px;color:var(--t3);margin-top:3px;">O Visualizador só acessa Atividades e Presença, restrito a este projeto.</div>
+        <label class="fl">Projetos com Acesso</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);margin-bottom:6px;cursor:pointer;">
+          <input type="checkbox" id="rProjetoTodos" onchange="_toggleRProjetoTodos()"> Todos os projetos (sem restrição)
+        </label>
+        <div id="rProjetoLista" style="display:flex;flex-direction:column;gap:4px;max-height:150px;overflow-y:auto;border:1px solid var(--b1);border-radius:8px;padding:8px;"></div>
+        <div style="font-size:10px;color:var(--t3);margin-top:3px;" id="rProjetoHint">Marque um ou mais projetos que este usuário poderá ver.</div>
       </div>
       <div class="mf">
         <button class="btn" onclick="fechar('mNovoUsr')">Cancelar</button>
@@ -3059,6 +3062,8 @@ function load(){
   _inicializarNiveis();
   // Garante lista de disciplinas registradas (pré-definidas + já usadas + adicionadas manualmente)
   _inicializarDisciplinas();
+  // Migra projetoAcesso (string única, só Visualizador) para projetosAcesso (array, todos os níveis)
+  _migrarProjetosAcesso();
   // Garante seed do admin inicial (V7)
   if(typeof _ensureAdminSeed==='function') _ensureAdminSeed();
 }
@@ -3148,6 +3153,36 @@ async function login(){
 function isAdmin(){
   return (S.currentUserNivel||'').toLowerCase()==='admin';
 }
+// Migra o campo antigo (projetoAcesso, string única, só existia p/ Visualizador)
+// para o novo (projetosAcesso, array, vale para qualquer nível não-admin).
+function _migrarProjetosAcesso(){
+  (S.usuarios||[]).forEach(u=>{
+    if(!Array.isArray(u.projetosAcesso)){
+      u.projetosAcesso = u.projetoAcesso ? [String(u.projetoAcesso)] : [];
+      delete u.projetoAcesso;
+    }
+  });
+}
+// IDs (string) dos projetos que o usuário LOGADO pode ver, ou null se ele
+// não tem restrição (Administrador, ou projetosAcesso vazio = "Todos").
+function _idsProjetosVisiveis(){
+  if(isAdmin()) return null;
+  const u=(S.usuarios||[]).find(x=>x.user.toLowerCase()===(S.currentUser||'').toLowerCase());
+  const ids=u && Array.isArray(u.projetosAcesso) ? u.projetosAcesso.map(String) : [];
+  return ids.length ? ids : null;
+}
+// Lista de projetos (objetos) visível para o usuário logado.
+function _projetosVisiveis(){
+  const ids=_idsProjetosVisiveis();
+  return ids ? (S.projetos||[]).filter(p=>ids.includes(String(p.id))) : (S.projetos||[]);
+}
+// true se o projeto pjId está dentro do que o usuário logado pode ver
+// (sempre true se ele não tiver restrição). Útil dentro de loops/filtros
+// que hoje iteram "todos os projetos quando nenhum filtro está selecionado".
+function _projetoPermitido(pjId){
+  const ids=_idsProjetosVisiveis();
+  return !ids || ids.includes(String(pjId));
+}
 function abrirNovoUsuario(){
   if(!isAdmin()){
     alert('⛔ Acesso negado.\n\nSomente o Administrador pode criar novos usuários.');
@@ -3156,7 +3191,7 @@ function abrirNovoUsuario(){
   // limpa o formulário
   ['rnome','rusr','rpwd','rpwd2'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const sel=document.getElementById('rnivel'); if(sel) sel.value='gestor';
-  const rp=document.getElementById('rProjeto'); if(rp) rp.value='';
+  const rt=document.getElementById('rProjetoTodos'); if(rt) rt.checked=false;
   _atualizarDescNivel();
   document.getElementById('mNovoUsr').classList.add('on');
   setTimeout(()=>{ const el=document.getElementById('rnome'); if(el) el.focus(); },60);
@@ -3172,17 +3207,35 @@ function _atualizarDescNivel(){
   const desc=document.getElementById('rnivelDesc');
   if(sel && desc) desc.innerHTML = map[sel.value] || '';
   const wrap=document.getElementById('rProjetoWrap');
-  const projSel=document.getElementById('rProjeto');
-  if(wrap && projSel){
-    if(sel && sel.value==='visualizador'){
+  const lista=document.getElementById('rProjetoLista');
+  const hint=document.getElementById('rProjetoHint');
+  if(wrap && lista){
+    if(sel && sel.value!=='admin'){
       wrap.style.display='';
-      const cur=projSel.value;
-      projSel.innerHTML='<option value="">Selecione um projeto...</option>'+(S.projetos||[]).map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
-      if(cur) projSel.value=cur;
+      // Preserva marcações já feitas ao trocar de nível
+      const marcados=new Set([...lista.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value));
+      lista.innerHTML=(S.projetos||[]).length
+        ? (S.projetos||[]).map(p=>`<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--t1);cursor:pointer;">
+            <input type="checkbox" value="${p.id}" ${marcados.has(String(p.id))?'checked':''}> ${p.nome}
+          </label>`).join('')
+        : '<span style="font-size:11px;color:var(--t3)">Nenhum projeto cadastrado ainda.</span>';
+      if(hint) hint.textContent = sel.value==='visualizador'
+        ? 'O Visualizador só acessa Atividades e Presença, restrito aos projetos marcados aqui.'
+        : 'Marque um ou mais projetos que este usuário poderá ver. Deixe "Todos" marcado para acesso irrestrito.';
+      _toggleRProjetoTodos();
     } else {
       wrap.style.display='none';
     }
   }
+}
+// Toggle "Todos os projetos" no cadastro de usuário — desabilita a lista
+// individual (fica implícito que ele vê tudo, sem precisar marcar um a um).
+function _toggleRProjetoTodos(){
+  const todos=document.getElementById('rProjetoTodos')?.checked;
+  const lista=document.getElementById('rProjetoLista');
+  if(!lista) return;
+  lista.querySelectorAll('input[type=checkbox]').forEach(c=>{ c.disabled=todos; if(todos) c.checked=false; });
+  lista.style.opacity = todos ? '.45' : '1';
 }
 function registrarUsuario(){
   if(!isAdmin()){
@@ -3198,14 +3251,17 @@ function registrarUsuario(){
   if(!/^[a-z0-9._-]{3,}$/.test(user)){ alert('Usuário inválido.\n\nUse 3+ caracteres: letras minúsculas, números, ponto, hífen ou underline.'); return; }
   if(pwd.length<6){ alert('A senha deve ter no mínimo 6 caracteres.'); return; }
   if(pwd!==pwd2){ alert('As senhas não conferem.'); return; }
-  let projetoAcesso='';
-  if(nivel==='visualizador'){
-    projetoAcesso=(document.getElementById('rProjeto')?.value||'').trim();
-    if(!projetoAcesso){ alert('Selecione o projeto que este Visualizador poderá acessar.'); return; }
+  let projetosAcesso=[];
+  if(nivel!=='admin'){
+    const todos=document.getElementById('rProjetoTodos')?.checked;
+    if(!todos){
+      projetosAcesso=[...document.querySelectorAll('#rProjetoLista input[type=checkbox]:checked')].map(c=>c.value);
+      if(!projetosAcesso.length){ alert('Marque "Todos os projetos" ou selecione ao menos um projeto para este usuário.'); return; }
+    }
   }
   _ensureAdminSeed();
   if(S.usuarios.find(x=>x.user.toLowerCase()===user)){ alert('Já existe um usuário com este login. Escolha outro.'); return; }
-  S.usuarios.push({user, pass:pwd, nome, nivel, projetoAcesso, criadoEm:new Date().toISOString(), criadoPor:S.currentUser||'admin'});
+  S.usuarios.push({user, pass:pwd, nome, nivel, projetosAcesso, criadoEm:new Date().toISOString(), criadoPor:S.currentUser||'admin'});
   try{ localStorage.setItem(SK, JSON.stringify(S)); }catch(e){}
   if(typeof log==='function') log('Usuário criado: '+user+' ('+NIVEL_ACESSO_LABELS[nivel]+')','👥');
   alert('✅ Usuário criado com sucesso!\n\n'+nome+' ('+NIVEL_ACESSO_LABELS[nivel]+')\nLogin: '+user);
@@ -3306,12 +3362,18 @@ function renderUsuariosList(){
     const nomeCol = (u.nome||'—') + (u.user.toLowerCase()==='admin' ? ' <span class="badge bb" style="margin-left:6px">Sistema</span>' : '');
     const meLabel = u.user.toLowerCase()===(S.currentUser||'').toLowerCase() ? ' <span class="badge bg" style="margin-left:6px">você</span>' : '';
     const canDelete = (u.user.toLowerCase()!=='admin' && u.user.toLowerCase()!==(S.currentUser||'').toLowerCase());
-    const projCol = u.nivel==='visualizador'
-      ? `<select class="fi" style="margin:0;padding:4px 6px;font-size:11px;min-width:140px" onchange="alterarProjetoUsuario('${u.user}', this.value)">
-          <option value="">Selecione...</option>
-          ${(S.projetos||[]).map(p=>`<option value="${p.id}" ${String(u.projetoAcesso)===String(p.id)?'selected':''}>${p.nome}</option>`).join('')}
-        </select>`
-      : '<span style="font-size:10px;color:var(--t3)">—</span>';
+    let projCol;
+    if(u.nivel==='admin'){
+      projCol='<span style="font-size:10px;color:var(--t3)">Todos</span>';
+    } else {
+      const ids=Array.isArray(u.projetosAcesso)?u.projetosAcesso.map(String):[];
+      const nomes=ids.map(id=>(S.projetos||[]).find(p=>String(p.id)===id)?.nome).filter(Boolean);
+      const resumo=!ids.length ? 'Todos' : (nomes.length<=2 ? nomes.join(', ') : nomes.length+' projetos');
+      projCol=`<div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;color:var(--t2);" title="${nomes.join(', ')||'Todos os projetos'}">${resumo}</span>
+        <button class="btn xs" onclick="abrirEditarProjetosUsuario('${u.user}')" title="Editar projetos com acesso">✏️</button>
+      </div>`;
+    }
     return `<tr>
       <td class="b">${nomeCol}${meLabel}</td>
       <td>${u.user}</td>
@@ -3324,14 +3386,58 @@ function renderUsuariosList(){
     </tr>`;
   }).join('') || '<tr><td colspan="6" class="empty">Nenhum usuário cadastrado.</td></tr>';
 }
-function alterarProjetoUsuario(user, projetoId){
+// Caixa suspensa para editar quais projetos um usuário (não-admin) pode ver.
+function abrirEditarProjetosUsuario(user){
   if(!isAdmin()){ alert('⛔ Acesso restrito ao Administrador.'); return; }
-  const u = S.usuarios.find(x=>x.user.toLowerCase()===user.toLowerCase());
+  const u=S.usuarios.find(x=>x.user.toLowerCase()===user.toLowerCase());
   if(!u) return;
-  u.projetoAcesso = projetoId;
-  try{ localStorage.setItem(SK, JSON.stringify(S)); }catch(e){}
-  if(typeof log==='function') log('Projeto de acesso alterado: '+user+' → '+((S.projetos||[]).find(p=>String(p.id)===String(projetoId))?.nome||'—'),'🔧');
-  if(typeof notif==='function') notif('Projeto de acesso atualizado.','ok');
+  let bg=document.getElementById('modalProjetosUsrBg');
+  if(bg) bg.remove();
+  bg=document.createElement('div');
+  bg.id='modalProjetosUsrBg';
+  bg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  const ids=Array.isArray(u.projetosAcesso)?u.projetosAcesso.map(String):[];
+  bg.innerHTML=`<div style="background:var(--surface-2,#161b2c);border:1px solid var(--border-strong,rgba(255,255,255,.13));border-radius:14px;padding:22px 24px;width:360px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.6);">
+    <div style="font-size:15px;font-weight:700;color:var(--text-1,#f1f5f9);margin-bottom:2px;">🏗️ Projetos de ${u.nome||user}</div>
+    <div style="font-size:11px;color:var(--text-2,#94a3b8);margin-bottom:12px;">Escolha quais projetos este usuário poderá ver e trabalhar.</div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-1,#f1f5f9);margin-bottom:8px;cursor:pointer;">
+      <input type="checkbox" id="editProjUsrTodos" ${!ids.length?'checked':''} onchange="_toggleEditProjUsrTodos()"> Todos os projetos (sem restrição)
+    </label>
+    <div id="editProjUsrLista" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:5px;border:1px solid var(--border-strong,rgba(255,255,255,.13));border-radius:8px;padding:8px;${!ids.length?'opacity:.45':''}">
+      ${(S.projetos||[]).map(p=>`<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-1,#f1f5f9);cursor:pointer;">
+        <input type="checkbox" value="${p.id}" ${!ids.length?'disabled':''} ${ids.includes(String(p.id))?'checked':''}> ${p.nome}
+      </label>`).join('') || '<span style="font-size:11px;color:var(--text-2,#94a3b8);">Nenhum projeto cadastrado ainda.</span>'}
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button onclick="document.getElementById('modalProjetosUsrBg').remove()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-2,#94a3b8);font-size:12px;font-weight:600;cursor:pointer;">Cancelar</button>
+      <button onclick="_salvarProjetosUsuario('${user}')" style="padding:8px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Salvar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener('click',e=>{if(e.target===bg)bg.remove();});
+}
+function _toggleEditProjUsrTodos(){
+  const todos=document.getElementById('editProjUsrTodos')?.checked;
+  const lista=document.getElementById('editProjUsrLista');
+  if(!lista) return;
+  lista.style.opacity = todos ? '.45' : '1';
+  lista.querySelectorAll('input[type=checkbox]').forEach(c=>{ c.disabled=todos; if(todos) c.checked=false; });
+}
+function _salvarProjetosUsuario(user){
+  const u=S.usuarios.find(x=>x.user.toLowerCase()===user.toLowerCase());
+  if(!u) return;
+  const todos=document.getElementById('editProjUsrTodos')?.checked;
+  let projetosAcesso=[];
+  if(!todos){
+    projetosAcesso=[...document.querySelectorAll('#editProjUsrLista input[type=checkbox]:checked')].map(c=>c.value);
+    if(!projetosAcesso.length){ notif('Marque "Todos os projetos" ou selecione ao menos um.','wn'); return; }
+  }
+  u.projetosAcesso=projetosAcesso;
+  save();
+  if(typeof log==='function') log('Projetos de acesso alterados: '+user+' → '+(projetosAcesso.length?projetosAcesso.length+' projeto(s)':'Todos'),'🔧');
+  document.getElementById('modalProjetosUsrBg')?.remove();
+  renderUsuariosList();
+  notif('Projetos de acesso atualizados.','ok');
 }
 function _aplicarRestricoesAcesso(){
   // Oculta o item "Usuários" da sidebar para não-administradores
@@ -3379,15 +3485,23 @@ function _aplicarRestricoesAcesso(){
 // no login), porque go('atividades'/'presenca') repõe a lista completa
 // de projetos via popAtivSelects()/popPresSelects() a cada visita.
 function _travarProjetoVisualizador(){
-  const u = (S.usuarios||[]).find(x=>x.user.toLowerCase()===(S.currentUser||'').toLowerCase());
-  const pid = u && u.projetoAcesso ? String(u.projetoAcesso) : '';
-  const pNome = pid ? ((S.projetos||[]).find(p=>String(p.id)===pid)?.nome || 'Projeto') : '';
+  const projs=_projetosVisiveis(); // já restrito aos projetosAcesso do usuário logado
   ['filAtPj','presPj'].forEach(id=>{
     const el=document.getElementById(id);
     if(!el) return;
-    el.innerHTML = pid ? `<option value="${pid}">${pNome}</option>` : '<option value="">Nenhum projeto atribuído</option>';
-    el.value = pid;
-    el.disabled = true;
+    const atual=el.value;
+    if(!projs.length){
+      el.innerHTML='<option value="">Nenhum projeto atribuído</option>';
+      el.value='';
+      el.disabled=true;
+      return;
+    }
+    el.innerHTML=projs.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+    // Mantém a seleção atual se ainda for permitida, senão cai no primeiro projeto permitido
+    el.value = projs.some(p=>String(p.id)===atual) ? atual : String(projs[0].id);
+    // Só trava (desabilita) quando há um único projeto — com mais de um, o
+    // Visualizador pode alternar entre os seus, só não vê os de fora da lista.
+    el.disabled = projs.length===1;
   });
 }
 function isViewerReadOnly(){
@@ -3543,7 +3657,7 @@ function go(id,btn){
     popRelSelects();
     // Popula filtro de projetos do relatório de impactos
     const elRip=document.getElementById('relIntPj');
-    if(elRip) elRip.innerHTML='<option value="">Todos os projetos</option>'+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+    if(elRip) elRip.innerHTML='<option value="">Todos os projetos</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
     renderImpactosPreview();
     // Recalcula com dados atualizados se já há projeto selecionado
     try{
@@ -4071,12 +4185,12 @@ function setTheme(t){
 // ═══════════════════════════════════════════
 // POPULATE SELECTS
 // ═══════════════════════════════════════════
-function pjOpts(extra=''){return extra+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
+function pjOpts(extra=''){return extra+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
 function popSelects(){
   ['colPj','filColPj','filAtPj','atPj','presPj','escPj','relPj','expPj','orgPj','dkPjSel'].forEach(id=>{
     const el=document.getElementById(id);if(!el)return;
     const first=el.options[0];
-    el.innerHTML=(first&&first.value===''?first.outerHTML:'')+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+    el.innerHTML=(first&&first.value===''?first.outerHTML:'')+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
   });
   // Inicializa data do dashboard se vazia
   const dkData=document.getElementById('dkData');
@@ -4084,15 +4198,16 @@ function popSelects(){
 }
 function popRelSelects(){
   const el=document.getElementById('relPj');if(!el)return;
+  const projs=_projetosVisiveis();
   el.innerHTML='<option value="">— Selecione o Projeto —</option>'+
-    S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+    projs.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
 
   // Prioridade: _relConfig.pjId > projeto ativo > projeto único
   const cfg = S._relConfig||{};
   const pjAtual = getPjAtual();
-  const restore = cfg.pjId||pjAtual||(S.projetos.length===1?String(S.projetos[0].id):'');
+  const restore = cfg.pjId||pjAtual||(projs.length===1?String(projs[0].id):'');
 
-  if(restore && S.projetos.find(p=>String(p.id)===String(restore))){
+  if(restore && projs.find(p=>String(p.id)===String(restore))){
     el.value = String(restore);
   }
 
@@ -4100,22 +4215,23 @@ function popRelSelects(){
   else { _limparCamposRel(); }
 }
 
-function popPresSelects(){const el=document.getElementById('presPj');if(el)el.innerHTML='<option value="">Selecione projeto</option>'+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
+function popPresSelects(){const el=document.getElementById('presPj');if(el)el.innerHTML='<option value="">Selecione projeto</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
 function popEscSelects(){
-  const el=document.getElementById('escPj');if(el)el.innerHTML='<option value="">Selecione projeto</option>'+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+  const el=document.getElementById('escPj');if(el)el.innerHTML='<option value="">Selecione projeto</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
   const pid=document.getElementById('escPj')?.value;
   const sc=document.getElementById('escCol');if(!sc)return;
   const cols=pid?S.colaboradores.filter(c=>c.projeto==pid&&c.status!=='Desligado'):[];
   sc.innerHTML='<option value="">Selecione</option>'+cols.map(c=>`<option value="${c.id}">${c.nome} — ${c.funcao}</option>`).join('');
 }
-function popAtivSelects(){const el=document.getElementById('filAtPj');if(el)el.innerHTML='<option value="">Todos projetos</option>'+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
+function popAtivSelects(){const el=document.getElementById('filAtPj');if(el)el.innerHTML='<option value="">Todos projetos</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
 function popExpSelects(){
   const pjAtual=getPjAtual();
+  const projs=_projetosVisiveis();
   ['expPj','fpPj'].forEach(id=>{
     const el=document.getElementById(id);if(!el)return;
     const firstOpt=id==='expPj'?'<option value="">Todos os projetos</option>':'<option value="">Selecione o projeto</option>';
-    el.innerHTML=firstOpt+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
-    if(pjAtual && S.projetos.find(p=>String(p.id)===pjAtual)) el.value=pjAtual;
+    el.innerHTML=firstOpt+projs.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+    if(pjAtual && projs.find(p=>String(p.id)===pjAtual)) el.value=pjAtual;
   });
   // Preenche datas padrão na folha de ponto (semana atual)
   const fpIni=document.getElementById('fpIni'),fpFim=document.getElementById('fpFim');
@@ -4171,9 +4287,10 @@ function delProjeto(id){
 }
 function renderProj(){
   const el=document.getElementById('lp-proj');if(!el)return;
-  if(!S.projetos.length){el.innerHTML='<div class="empty" style="padding:50px"><div class="ei">🏗️</div><p>Nenhum projeto</p></div>';return;}
+  const listaProj=_projetosVisiveis();
+  if(!listaProj.length){el.innerHTML='<div class="empty" style="padding:50px"><div class="ei">🏗️</div><p>Nenhum projeto</p></div>';return;}
   const sc={'Em andamento':'bg','Concluído':'bb','Planejamento':'by','Pausado':'bgy'};
-  el.innerHTML=S.projetos.map(p=>{
+  el.innerHTML=listaProj.map(p=>{
     const nc=S.colaboradores.filter(c=>c.projeto==p.id).length;
     const na=S.atividades.filter(a=>a.projetoId==p.id).length;
     return`<div class="card"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px"><div><div style="font-size:14px;font-weight:700;margin-bottom:3px">🏗️ ${p.nome}</div><div style="font-size:11px;color:var(--t2)">👤 ${p.cliente} &nbsp;|&nbsp; 📍 ${p.local||'—'}</div>${p.frente?`<div style="font-size:10px;color:var(--t3);margin-top:2px">🔧 ${p.frente}</div>`:''}</div><div style="display:flex;gap:4px;flex-shrink:0"><span class="badge ${sc[p.status]||'bgy'}">${p.status}</span><button class="btn xs" onclick="abrirProjeto(${p.id})">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delProjeto(${p.id})">🗑️</button></div></div><div style="display:flex;gap:12px;margin-top:9px;flex-wrap:wrap"><div style="font-size:10px;color:var(--t3)">📅 ${p.inicio||'—'} → ${p.fim||'—'}</div><div style="font-size:10px;color:var(--t3)">👷 <strong style="color:var(--ac)">${nc}</strong> colab.</div><div style="font-size:10px;color:var(--t3)">📋 <strong style="color:var(--ac)">${na}</strong> ativid.</div></div></div>`;
@@ -4361,6 +4478,8 @@ function renderCol(){
   const fp=document.getElementById('filColPj')?.value||'';
   const ff=document.getElementById('filColFunc')?.value||'';
   let list=S.colaboradores.slice();
+  const idsPerm=_idsProjetosVisiveis();
+  if(idsPerm)list=list.filter(c=>idsPerm.includes(String(c.projeto)));
   if(srch)list=list.filter(c=>c.nome.toLowerCase().includes(srch)||c.funcao.toLowerCase().includes(srch));
   if(fp)list=list.filter(c=>c.projeto==fp);
   if(ff)list=list.filter(c=>c.funcao===ff);
@@ -4989,6 +5108,8 @@ function renderAtiv(){
   const fp=document.getElementById('filAtPj')?.value||'';
   const fs=document.getElementById('filAtSt')?.value||'';
   let list=S.atividades;
+  const idsPerm=_idsProjetosVisiveis();
+  if(idsPerm)list=list.filter(a=>idsPerm.includes(String(a.projetoId)));
   if(fp)list=list.filter(a=>a.projetoId==fp);
   if(fs){
     // Se filtrar por "Atrasada", inclui atividades com status Atrasada OU atividades atrasadas pela data
@@ -5610,7 +5731,8 @@ function salvarEscala(){
 function delEscala(id){S.escalas=S.escalas.filter(e=>e.id!==id);save();renderEsc();renderCal();}
 function renderEsc(){
   const pjId=document.getElementById('escPj')?.value||'';
-  const list=pjId?S.escalas.filter(e=>e.pjId==pjId):S.escalas;
+  const idsPermEsc=_idsProjetosVisiveis();
+  const list=pjId?S.escalas.filter(e=>e.pjId==pjId):S.escalas.filter(e=>!idsPermEsc||idsPermEsc.includes(String(e.pjId)));
   const el=document.getElementById('escList');if(!el)return;
   if(!list.length){el.innerHTML='<div class="empty"><div class="ei">📅</div><p>Nenhuma escala</p></div>';return;}
   const tc={'Folga':'by','Férias':'bp','Afastamento':'br','Turno A':'bb','Turno B':'bg'};
@@ -5629,7 +5751,9 @@ function renderCal(){
   const first=new Date(S.calAno,S.calMes,1),last=new Date(S.calAno,S.calMes+1,0);
   const tod=new Date();
   for(let i=0;i<first.getDay();i++){h+=`<div class="cd dim">·</div>`;}
+  const idsPermCal=_idsProjetosVisiveis();
   const escMes=S.escalas.filter(e=>{
+    if(idsPermCal&&!idsPermCal.includes(String(e.pjId)))return false;
     if(pjId&&e.pjId!=pjId)return false;
     return e.inicio&&e.fim;
   });
@@ -5660,9 +5784,9 @@ function imprimirDashboard(){
   const projLocal=proj?proj.local||'—':'—';
   const projStatus=proj?proj.status||'—':'—';
 
-  // Coleta presença
+  // Coleta presença (sempre restrito ao que o usuário logado pode ver)
   let tp=0,ta=0,taf=0,tf=0;
-  const projsFiltro=filPj?S.projetos.filter(p=>String(p.id)===filPj):S.projetos;
+  const projsFiltro=filPj?_projetosVisiveis().filter(p=>String(p.id)===filPj):_projetosVisiveis();
   const colsNoDia=[];
   projsFiltro.forEach(p=>{
     const k=String(p.id)+'_'+filData;
@@ -5694,6 +5818,7 @@ function imprimirDashboard(){
 
   // Atividades - com filtro de disciplina
   let ativsAtivas=S.atividades.filter(a=>{
+    if(!_projetoPermitido(a.projetoId))return false;
     if(filPj&&String(a.projetoId)!==filPj)return false;
     return a.status!=='Concluída';
   });
@@ -5704,6 +5829,7 @@ function imprimirDashboard(){
 
   // Colaboradores ativos - com filtro de disciplina
   let colsAtivos=S.colaboradores.filter(c=>{
+    if(!_projetoPermitido(c.projeto))return false;
     if(filPj&&String(c.projeto)!==filPj)return false;
     return c.status!=='Desligado';
   });
@@ -5714,6 +5840,7 @@ function imprimirDashboard(){
 
   // Interferências - com filtro de disciplina
   let ativsInt=S.atividades.filter(a=>{
+    if(!_projetoPermitido(a.projetoId))return false;
     if(filPj&&String(a.projetoId)!==filPj)return false;
     return a.interferencia?.houve;
   });
@@ -5857,7 +5984,7 @@ function imprimirDashboard(){
     <div class="section-title">Visão Geral</div>
     <div class="fields-grid">
       <div class="fields-row cols-4">
-        <div class="field"><div class="field-label">Projetos Ativos</div><div class="field-value accent">${S.projetos.filter(p=>p.status==='Em andamento').length}</div></div>
+        <div class="field"><div class="field-label">Projetos Ativos</div><div class="field-value accent">${_projetosVisiveis().filter(p=>p.status==='Em andamento').length}</div></div>
         <div class="field"><div class="field-label">Total Colaboradores</div><div class="field-value">${colsAtivos.length}</div></div>
         <div class="field"><div class="field-label">Atividades em Aberto</div><div class="field-value">${ativsAtivas.length}</div></div>
         <div class="field"><div class="field-label">Data de Referência</div><div class="field-value sm">${todayFmt}</div></div>
@@ -5971,7 +6098,7 @@ function popDkSelects(){
   const sel=document.getElementById('dkPjSel');if(!sel)return;
   const cur=sel.value;
   sel.innerHTML='<option value="">— Todos os projetos —</option>'+
-    S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+    _projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
   if(cur)sel.value=cur;
   // Inicializa a data com hoje se vazia
   const dkData=document.getElementById('dkData');
@@ -6003,9 +6130,11 @@ function renderDashKpis(){
   const fimMes = new Date(ano, mes + 1, 0);
   const todayISO = hoje.toISOString().split('T')[0];
 
-  // Atividades atrasadas
-  const ativsTotal = (S.atividades || []).length;
-  const ativsAtrasadas = (S.atividades || []).filter(a => {
+  // Atividades atrasadas (só dos projetos que o usuário logado pode ver)
+  const idsPermKpi = _idsProjetosVisiveis();
+  const ativsVisiveis = (S.atividades || []).filter(a => !idsPermKpi || idsPermKpi.includes(String(a.projetoId)));
+  const ativsTotal = ativsVisiveis.length;
+  const ativsAtrasadas = ativsVisiveis.filter(a => {
     if(a.status === 'Concluída' || a.status === 'Pausada') return false;
     if(!a.fim) return false;
     return todayISO > a.fim && !a.terminoReal;
@@ -6014,15 +6143,16 @@ function renderDashKpis(){
 
   // Atividades a vencer em 7 dias
   const em7dias = new Date(); em7dias.setDate(em7dias.getDate() + 7);
-  const ativsAVencer = (S.atividades || []).filter(a => {
+  const ativsAVencer = ativsVisiveis.filter(a => {
     if(a.status === 'Concluída' || a.status === 'Pausada') return false;
     if(!a.fim) return false;
     const fimDate = new Date(a.fim+'T00:00:00');
     return fimDate >= hoje && fimDate <= em7dias;
   }).length;
 
-  // Custos do mês (viagens)
+  // Custos do mês (viagens) — só dos projetos visíveis
   const viagensMes = (S.viagens || []).filter(v => {
+    if(idsPermKpi && !idsPermKpi.includes(String(v.projetoId))) return false;
     const d = new Date(v.criadoEm || v.dataIda || 0);
     return d >= inicioMes && d <= fimMes;
   });
@@ -6128,10 +6258,10 @@ function renderDash(){
 
   const colsNoDia=[]; // lista de {colab, status}
 
-  // Determina quais projetos consultar
+  // Determina quais projetos consultar (sempre dentro do que o usuário pode ver)
   const projsFiltro = filPj
-    ? S.projetos.filter(p=>String(p.id)===filPj)
-    : S.projetos;
+    ? _projetosVisiveis().filter(p=>String(p.id)===filPj)
+    : _projetosVisiveis();
 
   projsFiltro.forEach(p=>{
     const chaveStr=String(p.id)+'_'+filData;
@@ -6189,7 +6319,7 @@ function renderDash(){
   document.getElementById('dk-col').textContent=filColabsComDisc.length||filColabs.length||S.colaboradores.filter(c=>c.status==='Ativo').length;
   document.getElementById('dk-pr').textContent=tp;
   document.getElementById('dk-au').textContent=ta;
-  document.getElementById('dk-pj').textContent=S.projetos.filter(p=>p.status==='Em andamento').length;
+  document.getElementById('dk-pj').textContent=_projetosVisiveis().filter(p=>p.status==='Em andamento').length;
   // Contagem de atividades filtrada por projeto e disciplina
   let ativsCount = filPj
     ? S.atividades.filter(a=>String(a.projetoId)===filPj)
@@ -6213,11 +6343,12 @@ function renderDash(){
 
   // ── Projetos card ──
   const pl=document.getElementById('dk-pjl');
-  if(!S.projetos.length){
+  const projsVisiveisDash=_projetosVisiveis();
+  if(!projsVisiveisDash.length){
     pl.innerHTML='<div class="empty"><div class="ei">🏗️</div><p>Nenhum projeto</p></div>';
   } else {
     const sc={'Em andamento':'bg','Concluído':'bb','Planejamento':'by','Pausado':'bgy'};
-    const projs=filPj?S.projetos.filter(p=>String(p.id)===filPj):S.projetos.slice(0,6);
+    const projs=filPj?projsVisiveisDash.filter(p=>String(p.id)===filPj):projsVisiveisDash.slice(0,6);
     pl.innerHTML=projs.map(p=>{
       const nc=S.colaboradores.filter(c=>String(c.projeto)===String(p.id)).length;
       const chaveStr=String(p.id)+'_'+filData;
@@ -6331,7 +6462,7 @@ function renderDash(){
 function renderImpactosPreview(){
   const pjFil=(document.getElementById('relIntPj')?.value||'').trim();
   const tipoFil=document.getElementById('relIntTipo')?.value||'';
-  let list=S.atividades.filter(a=>a.interferencia?.houve);
+  let list=S.atividades.filter(a=>a.interferencia?.houve && _projetoPermitido(a.projetoId));
   if(pjFil) list=list.filter(a=>String(a.projetoId)===pjFil);
   if(tipoFil) list=list.filter(a=>a.interferencia.tipo===tipoFil);
 
@@ -6372,7 +6503,7 @@ function renderImpactosPreview(){
 function imprimirImpactos(){
   const pjFil=(document.getElementById('relIntPj')?.value||document.getElementById('dkPjSel')?.value||'').trim();
   const tipoFil=document.getElementById('relIntTipo')?.value||'';
-  let list=S.atividades.filter(a=>a.interferencia?.houve);
+  let list=S.atividades.filter(a=>a.interferencia?.houve && _projetoPermitido(a.projetoId));
   if(pjFil) list=list.filter(a=>String(a.projetoId)===pjFil);
   if(tipoFil) list=list.filter(a=>a.interferencia.tipo===tipoFil);
 
@@ -7623,8 +7754,9 @@ function filtrarPorPeriodo(list,campoIni,campoFim){
 }
 function prevExport(){
   const pjId=document.getElementById('expPj').value;
-  let cols=pjId?S.colaboradores.filter(c=>c.projeto==pjId):S.colaboradores;
-  let ativs=pjId?S.atividades.filter(a=>a.projetoId==pjId):S.atividades;
+  const idsPermExp=_idsProjetosVisiveis();
+  let cols=pjId?S.colaboradores.filter(c=>c.projeto==pjId):S.colaboradores.filter(c=>!idsPermExp||idsPermExp.includes(String(c.projeto)));
+  let ativs=pjId?S.atividades.filter(a=>a.projetoId==pjId):S.atividades.filter(a=>!idsPermExp||idsPermExp.includes(String(a.projetoId)));
   ativs=filtrarPorPeriodo(ativs,'inicio','fim');
   const today=new Date().toISOString().split('T')[0];
   // Filter out collaborators on leave from counts
@@ -7635,7 +7767,7 @@ function prevExport(){
     const p=S.projetos.find(x=>x.id==c.projeto);
     // Get presence status
     let presStatus='—';
-    S.projetos.forEach(pj=>{const k=pj.id+'_'+today;if(S.presencas[k]&&S.presencas[k][c.id])presStatus=S.presencas[k][c.id];});
+    _projetosVisiveis().forEach(pj=>{const k=pj.id+'_'+today;if(S.presencas[k]&&S.presencas[k][c.id])presStatus=S.presencas[k][c.id];});
     const presIcon={presente:'<span class="badge bg">Presente</span>',ausente:'<span class="badge br">Ausente</span>',afastado:'<span class="badge by">Afastado</span>',ferias:'<span class="badge bp">Férias</span>'}[presStatus]||'<span class="badge bgy">'+presStatus+'</span>';
     h+=`<tr><td><span class="badge bb">Colaborador</span></td><td class="b">${c.nome}</td><td>${c.funcao} · ${p?p.nome:'—'}</td><td><span class="badge ${c.status==='Ativo'?'bg':'bgy'}">${c.status}</span></td><td>${presIcon}</td></tr>`;
   });
@@ -7644,6 +7776,7 @@ function prevExport(){
     const {ini,fim}=getExportPeriod();
     const presKeys=Object.keys(S.presencas).filter(k=>{
       if(pjId&&!k.startsWith(String(pjId)+'_')&&!k.startsWith(pjId+'_'))return false;
+      if(idsPermExp && !idsPermExp.includes(k.split('_')[0])) return false;
       const dt=k.split('_')[1];
       if(ini&&dt<ini)return false;
       if(fim&&dt>fim)return false;
@@ -7667,9 +7800,10 @@ function prevExport(){
 function exportar(){
   const pjId=document.getElementById('expPj').value;
   const fmt=document.querySelector('input[name=exFmt]:checked')?.value||'xls';
-  let cols=pjId?S.colaboradores.filter(c=>c.projeto==pjId):S.colaboradores;
+  const idsPermExp2=_idsProjetosVisiveis();
+  let cols=pjId?S.colaboradores.filter(c=>c.projeto==pjId):S.colaboradores.filter(c=>!idsPermExp2||idsPermExp2.includes(String(c.projeto)));
   cols=cols.filter(c=>!estaEmFolga(c.id));
-  let ativs=pjId?S.atividades.filter(a=>a.projetoId==pjId):S.atividades;
+  let ativs=pjId?S.atividades.filter(a=>a.projetoId==pjId):S.atividades.filter(a=>!idsPermExp2||idsPermExp2.includes(String(a.projetoId)));
   ativs=filtrarPorPeriodo(ativs,'inicio','fim');
   const proj=S.projetos.find(p=>p.id==pjId);
   const fname='gc4-export-'+Date.now();
@@ -7749,6 +7883,8 @@ function executarImpressaoAtiv(){
   const fp=document.getElementById('filAtPj')?.value||'';
   const fs=document.getElementById('filAtSt')?.value||'';
   let list=S.atividades;
+  const idsPermImpAtiv=_idsProjetosVisiveis();
+  if(idsPermImpAtiv)list=list.filter(a=>idsPermImpAtiv.includes(String(a.projetoId)));
   if(fp)list=list.filter(a=>a.projetoId==fp);
   if(fs){
     // Se filtrar por "Atrasada", inclui atividades com status Atrasada OU atividades atrasadas pela data
@@ -8091,7 +8227,7 @@ function executarImpressaoAtiv(){
     }
   }
   if(prCol){
-    const cols=fp?S.colaboradores.filter(c=>c.projeto==fp):S.colaboradores;
+    const cols=fp?S.colaboradores.filter(c=>c.projeto==fp):S.colaboradores.filter(c=>_projetoPermitido(c.projeto));
     h+='<h2 style="margin:20px 0 10px;font-size:16px;color:#333;">👥 Colaboradores</h2>';
     h+='<table border="1" cellpadding="5" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:20px;"><thead style=""><tr><th>#</th><th>Nome</th><th>Função</th><th>Status</th><th>Tel</th></tr></thead><tbody>';
     cols.forEach((c,i)=>{h+='<tr><td>'+(i+1)+'</td><td><b>'+c.nome+'</b></td><td>'+c.funcao+'</td><td>'+c.status+'</td><td>'+(c.telefone||'—')+'</td></tr>';});
@@ -8101,7 +8237,7 @@ function executarImpressaoAtiv(){
     const td=new Date().toISOString().split('T')[0];
     h+='<h2 style="margin:20px 0 10px;font-size:16px;color:#333;">✅ Presença — '+fd(td)+'</h2>';
     const presData=[];
-    S.projetos.forEach(p=>{
+    _projetosVisiveis().forEach(p=>{
       if(fp&&p.id!=fp)return;
       const k=p.id+'_'+td;
       if(S.presencas[k]){
@@ -8738,7 +8874,7 @@ function popFuncDl(){
 // ═══════════════════════════════════════════
 function popOrgSelects(){
   const el=document.getElementById('orgPj');if(!el)return;
-  el.innerHTML='<option value="">Selecione o projeto</option>'+S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+  el.innerHTML='<option value="">Selecione o projeto</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
 }
 
 // Funções auxiliares para renderização do organograma
@@ -10211,9 +10347,11 @@ const Pesquisa = {
     if(!termo || termo.length < 2) return [];
     const t = termo.toLowerCase().trim();
     const resultados = [];
+    const idsPermBusca = typeof _idsProjetosVisiveis==='function' ? _idsProjetosVisiveis() : null;
 
     // Colaboradores
     (S.colaboradores || []).forEach(c => {
+      if(idsPermBusca && !idsPermBusca.includes(String(c.projeto))) return;
       const txt = [c.nome, c.documento, c.email, c.funcao, c.disciplina, c.cidade].filter(Boolean).join(' ').toLowerCase();
       if(txt.includes(t)){
         resultados.push({
@@ -10228,6 +10366,7 @@ const Pesquisa = {
 
     // Projetos
     (S.projetos || []).forEach(p => {
+      if(idsPermBusca && !idsPermBusca.includes(String(p.id))) return;
       const txt = [p.nome, p.cliente, p.local, p.descricao].filter(Boolean).join(' ').toLowerCase();
       if(txt.includes(t)){
         resultados.push({
@@ -10242,6 +10381,7 @@ const Pesquisa = {
 
     // Viagens
     (S.viagens || []).forEach(v => {
+      if(idsPermBusca && !idsPermBusca.includes(String(v.projetoId))) return;
       const txt = [v.codigo, v.nome, v.destino, v.origem, v.documento, v.gestorNome].filter(Boolean).join(' ').toLowerCase();
       if(txt.includes(t)){
         resultados.push({
@@ -10256,6 +10396,7 @@ const Pesquisa = {
 
     // Atividades
     (S.atividades || []).forEach(a => {
+      if(idsPermBusca && !idsPermBusca.includes(String(a.projetoId))) return;
       const txt = [a.nome, a.descricao, a.disciplina, a.setor].filter(Boolean).join(' ').toLowerCase();
       if(txt.includes(t)){
         resultados.push({
@@ -12223,7 +12364,7 @@ function _reactiveTick(){
     if(dkSel){
       const cur=dkSel.value;
       dkSel.innerHTML='<option value="">— Todos os projetos —</option>'+
-        S.projetos.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+        _projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
       if(cur)dkSel.value=cur;
     }
     renderDash();
@@ -12788,7 +12929,9 @@ function toggleSelectAllViagens() {
   const filtroStatus = document.getElementById('filtroStatusViagem')?.value || '';
   const busca = document.getElementById('buscaViagem')?.value?.toLowerCase() || '';
 
+  const idsPermViagemSel = _idsProjetosVisiveis();
   let viagens = S.viagens.filter(v => {
+    if (idsPermViagemSel && !idsPermViagemSel.includes(String(v.projetoId))) return false;
     if (filtroPj && v.projetoId != filtroPj) return false;
     if (filtroStatus && v.status !== filtroStatus) return false;
     if (busca && !v.nome.toLowerCase().includes(busca)) return false;
@@ -12836,7 +12979,9 @@ function renderViagens() {
   const filtroDataFim = document.getElementById('filtroDataFimViagem')?.value || '';
   const busca = document.getElementById('buscaViagem')?.value?.toLowerCase() || '';
 
+  const idsPermViagem = _idsProjetosVisiveis();
   let viagens = S.viagens.filter(v => {
+    if (idsPermViagem && !idsPermViagem.includes(String(v.projetoId))) return false;
     if (filtroPj && v.projetoId != filtroPj) return false;
     if (filtroStatus && v.status !== filtroStatus) return false;
     // Filtro por período: viagem dentro do período (data ida >= filtroDataIni e data volta <= filtroDataFim)
@@ -13191,8 +13336,8 @@ function preencherFiltroProjetosViagem() {
     select.remove(1);
   }
   
-  // Adicionar projetos
-  S.projetos?.forEach(p => {
+  // Adicionar projetos (só os que o usuário logado pode ver)
+  _projetosVisiveis().forEach(p => {
     const option = document.createElement('option');
     option.value = p.id;
     option.textContent = p.nome;
