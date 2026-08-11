@@ -1273,7 +1273,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
   <!-- PROJETOS -->
   <div class="pg" id="pg-projetos">
     <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
-      <button class="btn prim" onclick="abrirProjeto()">+ Novo Projeto</button>
+      <button class="btn prim" id="btnNovoProjeto" onclick="abrirProjeto()">+ Novo Projeto</button>
     </div>
     <div id="lp-proj"><div class="empty" style="padding:50px;"><div class="ei">🏗️</div><p>Nenhum projeto cadastrado</p></div></div>
   </div>
@@ -4241,7 +4241,16 @@ function popExpSelects(){
 // ═══════════════════════════════════════════
 // PROJETOS
 // ═══════════════════════════════════════════
+// Só pode CRIAR projeto novo quem é Admin ou não tem restrição de projetos
+// (projetosAcesso vazio = "Todos"). Editar um projeto já liberado continua ok.
+function _podeCriarProjeto(){
+  return isAdmin() || !_idsProjetosVisiveis();
+}
 function abrirProjeto(id){
+  if(!id && !_podeCriarProjeto()){
+    alert('⛔ Acesso negado.\n\nSeu perfil não tem permissão para criar novos projetos.');
+    return;
+  }
   document.getElementById('mPjTit').textContent='🏗️ Novo Projeto';
   document.getElementById('pjId').value='';
   ['pjNome','pjCli','pjLoc','pjFr','pjObs','pjIni','pjFim'].forEach(x=>document.getElementById(x).value='');
@@ -4287,6 +4296,8 @@ function delProjeto(id){
 }
 function renderProj(){
   const el=document.getElementById('lp-proj');if(!el)return;
+  const btnNovo=document.getElementById('btnNovoProjeto');
+  if(btnNovo) btnNovo.style.display=_podeCriarProjeto()?'':'none';
   const listaProj=_projetosVisiveis();
   if(!listaProj.length){el.innerHTML='<div class="empty" style="padding:50px"><div class="ei">🏗️</div><p>Nenhum projeto</p></div>';return;}
   const sc={'Em andamento':'bg','Concluído':'bb','Planejamento':'by','Pausado':'bgy'};
