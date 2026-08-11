@@ -3615,8 +3615,14 @@ function init(){
     nCli.addEventListener('change', ()=>{ S._logoNomeCli = nCli.value; save(); });
     nCli._listenerAdded = true;
   }
-  // Restaurar tema salvo
-  try{const t=localStorage.getItem(SK+'_theme');if(t)setTheme(t);}catch(e){}
+  // Restaurar tema salvo — prioriza o tema escolhido pelo usuário logado
+  // (acompanha a pessoa em qualquer computador); sem preferência salva,
+  // cai no último tema usado neste navegador.
+  try{
+    const u=(S.usuarios||[]).find(x=>x.user.toLowerCase()===(S.currentUser||'').toLowerCase());
+    const t=(u && u.tema) || localStorage.getItem(SK+'_theme');
+    if(t) setTheme(t);
+  }catch(e){}
   document.getElementById('presData').value=new Date().toISOString().split('T')[0];
   const adminDisplayName=S.adminNome||S.currentUser;
   document.getElementById('unm').textContent=adminDisplayName;
@@ -4176,8 +4182,15 @@ function setTheme(t){
     b.style.background = '';
     b.style.backgroundAttachment = '';
   }
-  // Save theme preference
+  // Save theme preference (neste navegador — usado como fallback antes do login)
   try{localStorage.setItem(SK+'_theme',t);}catch(e){}
+  // Salva também no cadastro do usuário logado, para acompanhá-lo em
+  // qualquer computador que ele usar depois — não mexe na preferência
+  // de nenhum outro usuário.
+  if(typeof S!=='undefined' && S.currentUser){
+    const u=(S.usuarios||[]).find(x=>x.user.toLowerCase()===S.currentUser.toLowerCase());
+    if(u && u.tema!==t){ u.tema=t; if(typeof save==='function') save(); }
+  }
   // Atualiza o botão único do header se existir
   if(typeof renderBotaoTemaUnico === 'function') renderBotaoTemaUnico();
 }
