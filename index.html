@@ -4233,7 +4233,10 @@ function popEscSelects(){
   const el=document.getElementById('escPj');if(el)el.innerHTML='<option value="">Selecione projeto</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
   const pid=document.getElementById('escPj')?.value;
   const sc=document.getElementById('escCol');if(!sc)return;
-  const cols=pid?S.colaboradores.filter(c=>c.projeto==pid&&c.status!=='Desligado'):[];
+  // Sem projeto filtrado, mostra os colaboradores de TODOS os projetos que o
+  // usuário pode ver (nunca lista vazia por padrão) — antes caía pra [] e o
+  // usuário restrito a 1 projeto via só "Selecione" sem nunca ver ninguém.
+  const cols=pid?S.colaboradores.filter(c=>c.projeto==pid&&c.status!=='Desligado'):S.colaboradores.filter(c=>_projetoPermitido(c.projeto)&&c.status!=='Desligado');
   sc.innerHTML='<option value="">Selecione</option>'+cols.map(c=>`<option value="${c.id}">${c.nome} — ${c.funcao}</option>`).join('');
 }
 function popAtivSelects(){const el=document.getElementById('filAtPj');if(el)el.innerHTML='<option value="">Todos projetos</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
@@ -5730,7 +5733,7 @@ function updPresStats(p,a,af,f,fc=0,ab=0){
 // ═══════════════════════════════════════════
 function abrirEscala(){
   const pjId=document.getElementById('escPj').value;
-  const cols=pjId?S.colaboradores.filter(c=>c.projeto==pjId&&c.status!=='Desligado'):[];
+  const cols=pjId?S.colaboradores.filter(c=>c.projeto==pjId&&c.status!=='Desligado'):S.colaboradores.filter(c=>_projetoPermitido(c.projeto)&&c.status!=='Desligado');
   const sc=document.getElementById('escCol');
   sc.innerHTML='<option value="">Selecione</option>'+cols.map(c=>`<option value="${c.id}">${c.nome} — ${c.funcao}</option>`).join('');
   ['escIni','escFim','escObs'].forEach(x=>document.getElementById(x).value='');
@@ -13452,12 +13455,19 @@ function fecharModalViagem() {
 function preencherColaboradoresComFolga() {
   const select = document.getElementById('vColab');
   if (!select) return;
-  
+
   select.innerHTML = '<option value="">Selecione um colaborador...</option>';
-  
-  // Mostrar todos os colaboradores ativos do projeto atual
+
+  // Mostrar os colaboradores ativos do projeto atual — restrito aos projetos
+  // que o usuário logado pode ver. "Projeto atual" (S._pjAtual) é um contexto
+  // GLOBAL sincronizado entre todos os usuários (não é por pessoa); se
+  // apontar pra um projeto que este usuário não pode ver, ou não estiver
+  // definido, cai pra todos os projetos permitidos a ele — nunca fica vazio
+  // por causa de um contexto de outra pessoa, e nunca mostra colaborador de
+  // fora do que ele tem permissão de ver.
   const pjAtualId = getPjAtual();
-  const colabsAtivos = S.colaboradores?.filter(c => c.status === 'Ativo' && (!pjAtualId || c.projeto == pjAtualId)) || [];
+  const pjFiltro = (pjAtualId && _projetoPermitido(pjAtualId)) ? pjAtualId : null;
+  const colabsAtivos = S.colaboradores?.filter(c => c.status === 'Ativo' && (pjFiltro ? c.projeto == pjFiltro : _projetoPermitido(c.projeto))) || [];
   
   colabsAtivos.forEach(c => {
     select.innerHTML += '<option value="' + c.id + '">' + c.nome + ' (' + c.funcao + ')</option>';
