@@ -3754,6 +3754,24 @@ function swTab(id,btn){
 function abrir(id){document.getElementById(id).classList.add('on');}
 function fechar(id){document.getElementById(id).classList.remove('on');}
 document.querySelectorAll('.ov').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('on');}));
+// Modal genérico (título + HTML livre), usado por telas de "Detalhes" que não têm um modal próprio no HTML.
+function mo(titulo, html){
+  let ov = document.getElementById('mGenerico');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.className = 'ov';
+    ov.id = 'mGenerico';
+    ov.onclick = function(e){ if(e.target===ov) fechar('mGenerico'); };
+    ov.innerHTML = '<div class="obox" style="max-width:600px;max-height:90vh;overflow:hidden;">'
+      + '<div class="oh"><div class="oht" id="mGenericoTitulo"></div><button class="oc" onclick="fechar(\'mGenerico\')">✕</button></div>'
+      + '<div class="obd" id="mGenericoBody" style="max-height:calc(90vh - 70px);overflow-y:auto;"></div>'
+      + '</div>';
+    document.body.appendChild(ov);
+  }
+  document.getElementById('mGenericoTitulo').textContent = titulo;
+  document.getElementById('mGenericoBody').innerHTML = html;
+  ov.classList.add('on');
+}
 
 // ═══════════════════════════════════════════
 // NOTIFICAÇÕES
@@ -8317,7 +8335,7 @@ function executarImpressaoAtiv(){
     @media print{body{padding:0;background:#fff;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}table{page-break-inside:auto;}tr{page-break-inside:avoid;page-break-after:auto;}td,th{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}*[style*="background:"],*[bgcolor]{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}}
   `;
   
-  const w=window.open('','_blank');if(!w)return;
+  const w=window.open('','_blank');if(!w){notif('Popup bloqueado. Permita popups para imprimir.','wn');return;}
   // Recupera logos persistidos
   const logoEmp = (typeof LD !== 'undefined' && LD.ldEmp) ? LD.ldEmp : (S._logos?.ldEmp || '');
   const logoCli = (typeof LD !== 'undefined' && LD.ldCli) ? LD.ldCli : (S._logos?.ldCli || '');
@@ -8369,7 +8387,7 @@ function imprimirEscalas(){
   // Layout sempre branco, independente do tema ativo no sistema (mesmos
   // moldes/cores do relatório "Controle de Campo").
   const thm={bg:'#fff',bg2:'#f8fafc',bg3:'#f1f5f9',card:'#fff',b1:'#e2e8f0',t1:'#0a1628',t2:'#475569',t3:'#94a3b8',ac:'#0a1628',gn:'#16a34a',rd:'#FF4D6D',yl:'#d97706',pu:'#7c3aed'};
-  const w=window.open('','_blank');if(!w)return;
+  const w=window.open('','_blank');if(!w){notif('Popup bloqueado. Permita popups para imprimir.','wn');return;}
   w.document.write('<html><head><meta charset="UTF-8"><title>Escala de Folga</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>'+printCSS(thm)+'</style></head><body><div class="hdr"><div><h1>📅 Escala de Folga — '+pjNome+'</h1><small>Impresso em '+today+'</small></div><small>GestãoCampo</small></div>'+h+'</body></html>');
   w.document.close();
   setTimeout(()=>w.print(),600);
@@ -10671,7 +10689,8 @@ const Atalhos = {
       + '<table><tr><th>Combinação</th><th>Ação</th></tr>'+lista+'</table>'
       + '</body></html>';
     const w = window.open('', '_blank', 'width=600,height=720');
-    if(w){ w.document.write(html); w.document.close(); }
+    if(!w){ if(typeof notif === 'function') notif('Permita pop-ups', 'wn'); return; }
+    w.document.write(html); w.document.close();
   },
 
   // Adiciona um novo atalho customizado
