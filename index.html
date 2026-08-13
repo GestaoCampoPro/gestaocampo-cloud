@@ -5662,13 +5662,36 @@ function renderPres(){
   }
   updPresStats(p,a,af,f,fc,ab);
 }
+// Guarda de quem tem o modal de abono pendente (aberto, ainda sem motivo
+// confirmado) — usado por togglePres() para detectar um 2º clique seguido
+// no mesmo colaborador e pular o abono sem pedir motivo (ex.: clicou errado
+// e só quer seguir pro próximo status).
+let _abonarPendente=null;
 function togglePres(pjId,data,colabId,cur){
   if(_bloquearSeVisualizador())return;
   const k=String(pjId)+'_'+data;
   if(!S.presencas[k])S.presencas[k]={};
+  // 2º clique no mesmo colaborador com o modal de abono ainda pendente:
+  // pula o abono (sem exigir motivo) e avança direto pro próximo status.
+  if(_abonarPendente && _abonarPendente.k===k && _abonarPendente.colabId===colabId){
+    fecharModalAbonar();
+    _abonarPendente=null;
+    const ord=['presente','ausente','afastado','ferias','folga_campo','abonar'];
+    const proximo=ord[(ord.indexOf('abonar')+1)%ord.length];
+    if(!S.presencas_obs)S.presencas_obs={};
+    if(S.presencas_obs[k])delete S.presencas_obs[k][colabId];
+    S.presencas[k][colabId]=proximo;
+    save();
+    renderPres();
+    const dkData0=document.getElementById('dkData');
+    if(dkData0)dkData0.value=data;
+    renderDash();
+    return;
+  }
   const ord=['presente','ausente','afastado','ferias','folga_campo','abonar'];
   const novoSt=ord[(ord.indexOf(cur)+1)%ord.length];
   if(novoSt==='abonar'){
+    _abonarPendente={pjId,data,colabId,k};
     abrirModalAbonar(pjId,data,colabId,k);
     return;
   }
@@ -5717,6 +5740,7 @@ function confirmarAbonar(pjId,data,colabId,k){
   S.presencas[k][colabId]='abonar';
   S.presencas_obs[k][colabId]=motivo;
   save();
+  _abonarPendente=null;
   fecharModalAbonar();
   renderPres();
   const dkData=document.getElementById('dkData');
@@ -9485,7 +9509,7 @@ function save(){
    com o objeto inteiro em "dados" (jsonb) — sem colunas fixas por
    campo, então nenhum campo novo do app quebra a sincronização.
    ══════════════════════════════════════════════════════════════════ */
-var SB = window.SB || { client:null, busy:false, timer:null, _url:null, _key:null };
+var SB = window.SB || { client:null, busy:false, timer:null, pendingPush:false, _url:null, _key:null };
 window.SB = SB;
 var SB_ROW_ID = 'main';
 /* URL e anon key não são segredo (a anon key é feita para ficar pública no
@@ -9602,12 +9626,13 @@ async function sbFullSync(){
 function scheduleSupabaseSync(){
   if(window._syncingSupabase || SB.busy) return;
   clearTimeout(SB.timer);
+  SB.pendingPush=true;
   SB.timer=setTimeout(function(){
     sbSession().then(function(session){
-      if(!session) return;
+      if(!session){ SB.pendingPush=false; return; }
       SB.busy=true;
-      return sbPushState().catch(function(e){ throw e; }).finally(function(){ SB.busy=false; });
-    }).catch(function(e){console.error(e); if(typeof notif==='function') notif('⚠️ Falha na sincronização: '+e.message,'er');});
+      return sbPushState().catch(function(e){ throw e; }).finally(function(){ SB.busy=false; SB.pendingPush=false; });
+    }).catch(function(e){console.error(e); SB.pendingPush=false; if(typeof notif==='function') notif('⚠️ Falha na sincronização: '+e.message,'er');});
   },2500);
 }
 // ═══════════════════════════════════════════
@@ -9674,7 +9699,15 @@ async function _presencaPoll(){
 // (preserva a lista de atividades local enquanto o modal de Atividade estiver na tela).
 async function _pullSilencioso(){
   try{
-    if(window._syncingSupabase || SB.busy) return;
+    // Não faz pull enquanto houver uma alteração local ainda não enviada pro
+    // servidor (debounce de 2,5s do scheduleSupabaseSync pendente, ou push em
+    // andamento) — puxar agora sobrescreveria o S inteiro com dados da nuvem
+    // ainda desatualizados, revertendo visualmente a mudança recém-feita
+    // (ex.: marcar presença de um colaborador e, ao clicar no próximo, ver o
+    // anterior voltar pro status antigo). Sem risco de travar pra sempre: o
+    // próximo poll (10s) já pega o pendingPush limpo, porque o push local
+    // (2,5s de debounce) sempre termina bem antes disso em condições normais.
+    if(window._syncingSupabase || SB.busy || SB.pendingPush) return;
     const session = typeof sbSession==='function' ? await sbSession() : null;
     if(!session) return;
     const client = sbClient();
