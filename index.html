@@ -695,10 +695,18 @@ body.light-mode{
 /* Hover nas rows de tabela suave */
 tbody tr{transition:background var(--transition-fast)}
 
-/* Light mode: login painel esquerdo */
+/* Light mode: login painel esquerdo — o fundo continua roxo escuro nos dois temas
+   (regra acima), mas .login-title/.login-desc/.login-feat-text usam as variáveis
+   globais de texto, que no tema claro viram cores escuras (feitas p/ fundo branco)
+   — ficam quase invisíveis sobre o roxo escuro. Fixamos aqui as mesmas cores claras
+   já usadas no tema escuro, que são as corretas para este painel sempre escuro. */
 body.light-mode .login-left{
   background:linear-gradient(160deg,#1e0a3c 0%,#2d1b69 40%,#1a1040 100%);
 }
+body.light-mode .login-title{color:#f1f5f9}
+body.light-mode .login-desc{color:#94a3b8}
+body.light-mode .login-feat-text{color:#94a3b8}
+body.light-mode .login-feat-text strong{color:#f1f5f9}
 body.light-mode .login-right{
   background:#ffffff;border-left:1px solid #e2e8f0;
 }
