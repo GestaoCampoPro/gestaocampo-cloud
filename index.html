@@ -5662,22 +5662,28 @@ function renderPres(){
   }
   updPresStats(p,a,af,f,fc,ab);
 }
-// Guarda de quem tem o modal de abono pendente (aberto, ainda sem motivo
-// confirmado) — usado por togglePres() para detectar um 2º clique seguido
-// no mesmo colaborador e pular o abono sem pedir motivo (ex.: clicou errado
-// e só quer seguir pro próximo status).
-let _abonarPendente=null;
+// Guarda de quem tem o modal de motivo pendente (abono ou falta, aberto e
+// ainda sem motivo confirmado) — usado por togglePres() para detectar um 2º
+// clique seguido no mesmo colaborador e pular o status sem pedir motivo
+// (ex.: clicou errado e só quer seguir pro próximo status).
+let _motivoPendente=null;
+// Config de cada status que exige motivo via modal (título, rótulo, placeholder, texto do botão, msg de sucesso).
+const _MOTIVO_CFG={
+  abonar:{icone:'📋',titulo:'Abonar',rotulo:'Motivo do Abono:',placeholder:'Informe o motivo do abono...',erro:'Informe o motivo do abono',botao:'Confirmar Abono',sucesso:'Abono registrado com sucesso!'},
+  ausente:{icone:'❌',titulo:'Falta',rotulo:'Motivo da Falta:',placeholder:'Informe o motivo da falta...',erro:'Informe o motivo da falta',botao:'Confirmar Falta',sucesso:'Falta registrada com sucesso!'}
+};
 function togglePres(pjId,data,colabId,cur){
   if(_bloquearSeVisualizador())return;
   const k=String(pjId)+'_'+data;
   if(!S.presencas[k])S.presencas[k]={};
-  // 2º clique no mesmo colaborador com o modal de abono ainda pendente:
-  // pula o abono (sem exigir motivo) e avança direto pro próximo status.
-  if(_abonarPendente && _abonarPendente.k===k && _abonarPendente.colabId===colabId){
-    fecharModalAbonar();
-    _abonarPendente=null;
-    const ord=['presente','ausente','afastado','ferias','folga_campo','abonar'];
-    const proximo=ord[(ord.indexOf('abonar')+1)%ord.length];
+  const ord=['presente','ausente','afastado','ferias','folga_campo','abonar'];
+  // 2º clique no mesmo colaborador com o modal de motivo ainda pendente:
+  // pula o status (sem exigir motivo) e avança direto pro próximo.
+  if(_motivoPendente && _motivoPendente.k===k && _motivoPendente.colabId===colabId){
+    fecharModalMotivo();
+    const stPendente=_motivoPendente.st;
+    _motivoPendente=null;
+    const proximo=ord[(ord.indexOf(stPendente)+1)%ord.length];
     if(!S.presencas_obs)S.presencas_obs={};
     if(S.presencas_obs[k])delete S.presencas_obs[k][colabId];
     S.presencas[k][colabId]=proximo;
@@ -5688,11 +5694,10 @@ function togglePres(pjId,data,colabId,cur){
     renderDash();
     return;
   }
-  const ord=['presente','ausente','afastado','ferias','folga_campo','abonar'];
   const novoSt=ord[(ord.indexOf(cur)+1)%ord.length];
-  if(novoSt==='abonar'){
-    _abonarPendente={pjId,data,colabId,k};
-    abrirModalAbonar(pjId,data,colabId,k);
+  if(_MOTIVO_CFG[novoSt]){
+    _motivoPendente={pjId,data,colabId,k,st:novoSt};
+    abrirModalMotivo(novoSt,pjId,data,colabId,k);
     return;
   }
   if(!S.presencas_obs)S.presencas_obs={};
@@ -5704,49 +5709,51 @@ function togglePres(pjId,data,colabId,cur){
   if(dkData) dkData.value = data;
   renderDash();
 }
-function abrirModalAbonar(pjId,data,colabId,k){
+function abrirModalMotivo(tipo,pjId,data,colabId,k){
+  const cfg=_MOTIVO_CFG[tipo];
   const colab=S.colaboradores.find(c=>c.id==colabId);
   const nomeColab=colab?colab.nome:'Colaborador';
-  let bg=document.getElementById('modalAbonarBg');
+  let bg=document.getElementById('modalMotivoBg');
   if(bg){bg.remove();}
   bg=document.createElement('div');
-  bg.id='modalAbonarBg';
+  bg.id='modalMotivoBg';
   bg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;';
   bg.innerHTML=`<div style="background:var(--surface-2,#161b2c);border:1px solid var(--border-strong,rgba(255,255,255,.13));border-radius:14px;padding:24px 28px;width:420px;max-width:92vw;box-shadow:0 16px 48px rgba(0,0,0,.6);">
-    <div style="font-size:15px;font-weight:700;color:var(--text-1,#f1f5f9);margin-bottom:4px;">📋 Abonar — ${nomeColab}</div>
+    <div style="font-size:15px;font-weight:700;color:var(--text-1,#f1f5f9);margin-bottom:4px;">${cfg.icone} ${cfg.titulo} — ${nomeColab}</div>
     <div style="font-size:11px;color:var(--text-2,#94a3b8);margin-bottom:14px;">Data: ${data.split('-').reverse().join('/')}</div>
-    <label style="font-size:11px;font-weight:600;color:var(--text-2,#94a3b8);display:block;margin-bottom:6px;">Motivo do Abono:</label>
-    <textarea id="abonarMotivo" rows="3" placeholder="Informe o motivo do abono..." style="width:100%;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-1,#f1f5f9);padding:10px 12px;font-size:12px;font-family:inherit;resize:vertical;outline:none;"></textarea>
+    <label style="font-size:11px;font-weight:600;color:var(--text-2,#94a3b8);display:block;margin-bottom:6px;">${cfg.rotulo}</label>
+    <textarea id="motivoTexto" rows="3" placeholder="${cfg.placeholder}" style="width:100%;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-1,#f1f5f9);padding:10px 12px;font-size:12px;font-family:inherit;resize:vertical;outline:none;"></textarea>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
-      <button onclick="fecharModalAbonar()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-2,#94a3b8);font-size:12px;font-weight:600;cursor:pointer;">Cancelar</button>
-      <button onclick="confirmarAbonar('${pjId}','${data}',${colabId},'${k}')" style="padding:8px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Confirmar Abono</button>
+      <button onclick="fecharModalMotivo()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border-strong,rgba(255,255,255,.13));background:var(--surface-3,#1f2638);color:var(--text-2,#94a3b8);font-size:12px;font-weight:600;cursor:pointer;">Cancelar</button>
+      <button onclick="confirmarMotivo('${tipo}','${pjId}','${data}',${colabId},'${k}')" style="padding:8px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">${cfg.botao}</button>
     </div>
   </div>`;
   document.body.appendChild(bg);
-  bg.addEventListener('click',e=>{if(e.target===bg)fecharModalAbonar();});
-  setTimeout(()=>document.getElementById('abonarMotivo')?.focus(),100);
+  bg.addEventListener('click',e=>{if(e.target===bg)fecharModalMotivo();});
+  setTimeout(()=>document.getElementById('motivoTexto')?.focus(),100);
 }
-function fecharModalAbonar(){
-  const bg=document.getElementById('modalAbonarBg');
+function fecharModalMotivo(){
+  const bg=document.getElementById('modalMotivoBg');
   if(bg)bg.remove();
 }
-function confirmarAbonar(pjId,data,colabId,k){
+function confirmarMotivo(tipo,pjId,data,colabId,k){
   if(_bloquearSeVisualizador())return;
-  const motivo=(document.getElementById('abonarMotivo')?.value||'').trim();
-  if(!motivo){notif('Informe o motivo do abono','wn');return;}
+  const cfg=_MOTIVO_CFG[tipo];
+  const motivo=(document.getElementById('motivoTexto')?.value||'').trim();
+  if(!motivo){notif(cfg.erro,'wn');return;}
   if(!S.presencas[k])S.presencas[k]={};
   if(!S.presencas_obs)S.presencas_obs={};
   if(!S.presencas_obs[k])S.presencas_obs[k]={};
-  S.presencas[k][colabId]='abonar';
+  S.presencas[k][colabId]=tipo;
   S.presencas_obs[k][colabId]=motivo;
   save();
-  _abonarPendente=null;
-  fecharModalAbonar();
+  _motivoPendente=null;
+  fecharModalMotivo();
   renderPres();
   const dkData=document.getElementById('dkData');
   if(dkData)dkData.value=data;
   renderDash();
-  notif('Abono registrado com sucesso!','ok');
+  notif(cfg.sucesso,'ok');
 }
 
 // Navega entre dias na tela de presença (-1 = dia anterior, +1 = próximo dia)
