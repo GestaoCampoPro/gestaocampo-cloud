@@ -9609,6 +9609,7 @@ async function sbTestConnection(){
 }
 async function sbFullSync(){
   if(SB.busy) return;
+  if(!navigator.onLine) throw new Error('Sem conexão com a internet — os dados continuam salvos neste dispositivo.');
   var c=sbPersistCfg();
   if(!c.url || !c.anonKey) throw new Error('Informe a Project URL e a Anon Key do Supabase.');
   var session=await sbSession();
@@ -9635,13 +9636,25 @@ function scheduleSupabaseSync(){
   clearTimeout(SB.timer);
   SB.pendingPush=true;
   SB.timer=setTimeout(function(){
+    if(!navigator.onLine){ SB.pendingPush=false; sbSetStatus('Offline — salvo neste dispositivo','var(--rd)'); return; }
     sbSession().then(function(session){
       if(!session){ SB.pendingPush=false; return; }
       SB.busy=true;
       return sbPushState().catch(function(e){ throw e; }).finally(function(){ SB.busy=false; SB.pendingPush=false; });
-    }).catch(function(e){console.error(e); SB.pendingPush=false; if(typeof notif==='function') notif('⚠️ Falha na sincronização: '+e.message,'er');});
+    }).catch(function(e){console.error(e); SB.pendingPush=false; if(navigator.onLine){ if(typeof notif==='function') notif('⚠️ Falha na sincronização: '+e.message,'er'); } else { sbSetStatus('Offline — salvo neste dispositivo','var(--rd)'); } });
   },2500);
 }
+// Assim que a conexão voltar, sincroniza sozinho (sem esperar a próxima
+// alteração do usuário para reagendar o push).
+window.addEventListener('online', function(){
+  sbSetStatus('Conexão restabelecida — sincronizando...','var(--yl)');
+  sbFullSync().then(function(){
+    if(typeof notif==='function') notif('🌐 Conexão restabelecida — sincronizado com a nuvem.','ok');
+  }).catch(function(e){ console.warn('Falha ao sincronizar após reconectar:',e&&e.message); });
+});
+window.addEventListener('offline', function(){
+  sbSetStatus('Offline — trabalhando localmente','var(--rd)');
+});
 // ═══════════════════════════════════════════
 // PRESENÇA MULTIUSUÁRIO — quem está online agora, o que está editando,
 // e verificação de conflito antes de sobrescrever uma edição de outra pessoa.
@@ -9685,6 +9698,7 @@ async function _presencaHeartbeat(){
 }
 async function _presencaPoll(){
   try{
+    if(!navigator.onLine) return;
     const session = typeof sbSession==='function' ? await sbSession() : null;
     if(!session){ _presenceOnlineUsers=[]; _renderPresencaOnline(); return; }
     const client = sbClient();
@@ -9715,6 +9729,7 @@ async function _pullSilencioso(){
     // próximo poll (10s) já pega o pendingPush limpo, porque o push local
     // (2,5s de debounce) sempre termina bem antes disso em condições normais.
     if(window._syncingSupabase || SB.busy || SB.pendingPush) return;
+    if(!navigator.onLine) return;
     const session = typeof sbSession==='function' ? await sbSession() : null;
     if(!session) return;
     const client = sbClient();
