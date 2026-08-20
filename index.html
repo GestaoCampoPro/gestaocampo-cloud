@@ -4725,22 +4725,26 @@ function verCurriculoPdfLista(id){
   _abrirPdfDataUrl(c?c.arquivoPdf:null);
 }
 
-// Progresso: ASO (1/3) + Treinamentos (1/3, proporcional à fração do catálogo
-// padrão já marcada — ao inserir uma NR nova em TREINAMENTOS_PADRAO, a fração
-// se ajusta sozinha para todos os candidatos, sem precisar mexer aqui) +
-// Assinatura (1/3).
+// Progresso: cada etapa individual conta 1 passo — ASO, CADA NR/treinamento
+// (do catálogo padrão + quaisquer NRs extras adicionadas pra este candidato)
+// e a Assinatura final. Ao inserir uma NR nova em TREINAMENTOS_PADRAO, o total
+// de passos cresce sozinho e a barra se ajusta pra todo mundo automaticamente.
+function _totalPassosCurriculo(cur){
+  const e=cur.etapas||{};
+  const treinos=e.treinamentos||[];
+  const extras=treinos.filter(t=>!TREINAMENTOS_PADRAO.includes(t));
+  return 2+TREINAMENTOS_PADRAO.length+extras.length; // ASO + Assinatura + cada NR
+}
 function calcProgressoCurriculo(cur){
   if(!cur)return 0;
   if(cur.situacao==='candidato')return 0;
   if(cur.situacao==='convertido')return 100;
   const e=cur.etapas||{};
-  const totalPadrao=TREINAMENTOS_PADRAO.length||1;
-  const fracTreinos=Math.min(1,(e.treinamentos||[]).length/totalPadrao);
-  let pct=0;
-  if(e.aso)pct+=1/3;
-  pct+=fracTreinos*(1/3);
-  if(e.assinatura)pct+=1/3;
-  return Math.round(pct*100);
+  const totalPassos=_totalPassosCurriculo(cur);
+  let done=(e.treinamentos||[]).length;
+  if(e.aso)done++;
+  if(e.assinatura)done++;
+  return totalPassos>0?Math.round(done/totalPassos*100):0;
 }
 function fmtDuracaoContratacao(ms){
   if(ms==null||isNaN(ms)||ms<0)return '—';
