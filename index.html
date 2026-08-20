@@ -4622,7 +4622,7 @@ function renderCol(){
 // ═══════════════════════════════════════════
 // CURRÍCULOS — Candidatos e Processo de Contratação
 // ═══════════════════════════════════════════
-const TREINAMENTOS_PADRAO=['NR-10 — Instalações Elétricas','NR-35 — Trabalho em Altura','NR-33 — Espaços Confinados','NR-12 — Segurança em Máquinas','NR-06 — Uso de EPI','NR-18 — Segurança na Construção','Integração de Segurança (Site)','Direção Defensiva','Primeiros Socorros'];
+const TREINAMENTOS_PADRAO=['NR-10 — Instalações Elétricas','NR-10 SEP — Sistema Elétrico de Potência','NR-13 — Caldeiras e Vasos de Pressão','NR-35 — Trabalho em Altura','NR-33 — Espaços Confinados','NR-12 — Segurança em Máquinas','NR-06 — Uso de EPI','NR-18 — Segurança na Construção','Integração de Segurança (Site)','Direção Defensiva','Primeiros Socorros'];
 
 function popCurFuncSelect(selectedFunc){
   if(typeof _migrarFuncoes==='function') _migrarFuncoes();
@@ -4687,16 +4687,22 @@ function verCurriculoPdfLista(id){
   _abrirPdfDataUrl(c?c.arquivoPdf:null);
 }
 
+// Progresso: ASO (1/3) + Treinamentos (1/3, proporcional à fração do catálogo
+// padrão já marcada — ao inserir uma NR nova em TREINAMENTOS_PADRAO, a fração
+// se ajusta sozinha para todos os candidatos, sem precisar mexer aqui) +
+// Assinatura (1/3).
 function calcProgressoCurriculo(cur){
   if(!cur)return 0;
   if(cur.situacao==='candidato')return 0;
   if(cur.situacao==='convertido')return 100;
   const e=cur.etapas||{};
-  let done=0;
-  if(e.aso)done++;
-  if((e.treinamentos||[]).length>0)done++;
-  if(e.assinatura)done++;
-  return Math.round(done/3*100);
+  const totalPadrao=TREINAMENTOS_PADRAO.length||1;
+  const fracTreinos=Math.min(1,(e.treinamentos||[]).length/totalPadrao);
+  let pct=0;
+  if(e.aso)pct+=1/3;
+  pct+=fracTreinos*(1/3);
+  if(e.assinatura)pct+=1/3;
+  return Math.round(pct*100);
 }
 function fmtDuracaoContratacao(ms){
   if(ms==null||isNaN(ms)||ms<0)return '—';
@@ -4763,7 +4769,10 @@ function renderCurProcessoSecao(cur,situacaoAtual){
   html+='<input type="checkbox" '+(etapas.aso?'checked':'')+' '+(convertido?'disabled':'')+' onchange="toggleAsoCurriculo('+cur.id+')"> ✅ ASO Realizado';
   html+='</label>';
 
-  html+='<div style="font-size:12px;font-weight:600;color:var(--t2);margin-bottom:6px;">🎓 Treinamentos realizados</div>';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+  html+='<div style="font-size:12px;font-weight:600;color:var(--t2);">🎓 Treinamentos realizados</div>';
+  html+='<div style="font-size:11px;color:var(--t3);">'+Math.min(etapas.treinamentos.length,TREINAMENTOS_PADRAO.length)+' de '+TREINAMENTOS_PADRAO.length+' padrão</div>';
+  html+='</div>';
   html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">';
   TREINAMENTOS_PADRAO.forEach(t=>{
     const on=etapas.treinamentos.includes(t);
@@ -4776,8 +4785,8 @@ function renderCurProcessoSecao(cur,situacaoAtual){
   }
   if(!convertido){
     html+='<div style="display:flex;gap:6px;margin-bottom:12px;">';
-    html+='<input class="fi" id="curTreinoCustom" placeholder="Outro treinamento..." style="margin:0;flex:1;font-size:12px;">';
-    html+='<button class="btn xs" onclick="adicionarTreinamentoCustom('+cur.id+')">+ Adicionar</button>';
+    html+='<input class="fi" id="curTreinoCustom" placeholder="NR ou treinamento não listado acima..." style="margin:0;flex:1;font-size:12px;">';
+    html+='<button class="btn xs" onclick="adicionarTreinamentoCustom('+cur.id+')">+ Adicionar NR</button>';
     html+='</div>';
   }
 
