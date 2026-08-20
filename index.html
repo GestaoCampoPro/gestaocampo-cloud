@@ -571,6 +571,10 @@ textarea.fi{resize:vertical;min-height:72px;line-height:1.5}
 .bg-pu{background:rgba(167,139,250,.12);color:var(--pu);border:1px solid rgba(167,139,250,.25)}
 .bb{background:var(--accent-bg);color:var(--accent-3);border:1px solid rgba(124,58,237,.25)}
 
+/* ══════════════ PROGRESSO (Currículos / Contratação) ══════════════ */
+.hprog{height:8px;background:var(--bg3);border-radius:4px;overflow:hidden}
+.hprog-fill{height:100%;border-radius:4px;background:var(--ac);transition:width .3s}
+
 /* ══════════════ NOTIFICAÇÃO ══════════════ */
 .notif{
   position:fixed;bottom:20px;right:20px;z-index:9999;
@@ -1122,6 +1126,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
     <button class="nb on" onclick="go('dashboard',this)" data-tooltip="Visão geral do sistema"><span class="ni">📊</span>Dashboard</button>
     <button class="nb" onclick="go('projetos',this)" data-tooltip="Gerenciar projetos"><span class="ni">🏗️</span>Projetos</button>
     <button class="nb" onclick="go('colaboradores',this)" data-tooltip="Cadastro de equipe"><span class="ni">👥</span>Colaboradores</button>
+    <button class="nb" onclick="go('curriculos',this)" data-tooltip="Candidatos e processo de contratação"><span class="ni">🧾</span>Currículos</button>
     <div class="ns">Campo</div>
     <button class="nb" onclick="go('atividades',this)" data-tooltip="Tarefas e cronograma"><span class="ni">📋</span>Atividades</button>
     <button class="nb" onclick="go('presenca',this)" data-tooltip="Controle diário"><span class="ni">✅</span>Presença</button>
@@ -1305,6 +1310,25 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
     <div class="card"><div class="tw"><table>
       <thead><tr><th>#</th><th>Nome</th><th>Função</th><th>Tel</th><th>EPI</th><th>Status</th><th>Responsável</th><th>Projeto</th><th></th></tr></thead>
       <tbody id="tbCol"></tbody>
+    </table></div></div>
+  </div>
+
+  <!-- CURRÍCULOS -->
+  <div class="pg" id="pg-curriculos">
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+      <div class="srch" style="flex:1;"><span>🔍</span><input id="srCur" placeholder="Buscar..." oninput="Utils.debounce(renderCurriculos, 300)()"></div>
+      <select class="fi" style="width:170px;margin:0;" id="filCurPj" onchange="renderCurriculos()"><option value="">Todos projetos</option></select>
+      <select class="fi" style="width:170px;margin:0;" id="filCurSit" onchange="renderCurriculos()">
+        <option value="">Todas situações</option>
+        <option value="candidato">Candidato</option>
+        <option value="contratacao">Em Contratação</option>
+        <option value="convertido">Convertido</option>
+      </select>
+      <button class="btn prim" onclick="abrirCurriculo()">+ Novo</button>
+    </div>
+    <div class="card"><div class="tw"><table>
+      <thead><tr><th>#</th><th>Nome</th><th>Função</th><th>Situação</th><th>Progresso</th><th>Tempo Contratação</th><th>Currículo</th><th></th></tr></thead>
+      <tbody id="tbCur"></tbody>
     </table></div></div>
   </div>
 
@@ -2277,6 +2301,44 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
   </div>
 </div>
 
+<!-- MODAL CURRÍCULO -->
+<div class="ov" id="mCurriculo">
+  <div class="modal mlg">
+    <div class="mh"><div class="mht" id="mCurTit">🧾 Novo Currículo</div><button class="mc" onclick="fechar('mCurriculo')">✕</button></div>
+    <input type="hidden" id="curId">
+    <div class="fg"><label class="fl">Nome Completo *</label><input class="fi" id="curNome" placeholder="Nome completo"></div>
+    <div class="fr"><div class="fg"><label class="fl">Função *</label><select class="fi" id="curFunc"><option value="">Selecione uma função</option></select></div><div class="fg"><label class="fl">Disciplina</label><input class="fi" id="curDisc" placeholder="Ex: Elétrica"></div></div>
+    <div class="fr"><div class="fg"><label class="fl">E-mail</label><input class="fi" id="curEmail" placeholder="email@exemplo.com" onblur="if(this.value && !Utils.isValidEmail(this.value)) { notif('E-mail inválido','wn'); this.value=''; }"></div><div class="fg"><label class="fl">Telefone</label><input class="fi" id="curTel" placeholder="(31) 99999-9999" oninput="this.value = Utils.maskPhone(this.value)" maxlength="15"></div></div>
+    <div class="fg"><label class="fl">Pix</label><input class="fi" id="curPix" placeholder="CPF, email ou telefone para PIX"></div>
+    <div class="fr3"><div class="fg"><label class="fl">Camisa</label><select class="fi" id="curCam"><option>PP</option><option>P</option><option selected>M</option><option>G</option><option>GG</option><option>XGG</option></select></div><div class="fg"><label class="fl">Calça</label><input class="fi" id="curCalc" placeholder="42"></div><div class="fg"><label class="fl">Calçado</label><input class="fi" id="curSap" placeholder="42"></div></div>
+    <div class="fr"><div class="fg"><label class="fl">Projeto</label><select class="fi" id="curPj"><option value="">Sem projeto</option></select></div><div class="fg"><label class="fl">Responsável / Recrutador</label><select class="fi" id="curResp"><option value="">Sem responsável</option></select></div></div>
+    <div class="fg"><label class="fl">Obs</label><textarea class="fi" id="curObs" rows="2"></textarea></div>
+
+    <div class="fg">
+      <label class="fl">Currículo (PDF)</label>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input type="file" id="curPdfInput" accept="application/pdf" style="display:none" onchange="uploadCurriculoPdf(this)">
+        <button class="btn" onclick="document.getElementById('curPdfInput').click()">📎 Selecionar PDF</button>
+        <span id="curPdfNome" style="font-size:12px;color:var(--t2);">Nenhum arquivo selecionado</span>
+        <button class="btn xs" id="curPdfVerBtn" style="display:none" onclick="abrirCurriculoPdf()">👁 Ver</button>
+        <button class="btn xs" id="curPdfRemBtn" style="display:none;color:var(--rd)" onclick="removerCurriculoPdfDraft()">🗑 Remover</button>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label class="fl">Situação</label>
+      <select class="fi" id="curSituacao" onchange="_onChangeSituacaoCurModal()">
+        <option value="candidato">📇 Candidato</option>
+        <option value="contratacao">🚀 Em Contratação</option>
+      </select>
+    </div>
+
+    <div id="curProcessoWrap"></div>
+
+    <div class="mf"><button class="btn" onclick="fechar('mCurriculo')">Cancelar</button><button class="btn prim" onclick="salvarCurriculo()">💾 Salvar</button></div>
+  </div>
+</div>
+
 <!-- MODAL ATIVIDADE -->
 <div class="ov" id="mAtiv">
   <div class="modal">
@@ -2525,7 +2587,7 @@ console.log('%c© 2026 Vagner Rodrigues. Todos os direitos reservados. Cópia, r
   // ═══════════════════════════════════════════════════════════════════════════
   const SK = CONFIG.STORAGE_KEY;
 let S = {
-  projetos:[], colaboradores:[], atividades:[],
+  projetos:[], colaboradores:[], curriculos:[], atividades:[],
   presencas:{}, presencas_obs:{}, escalas:[], setores:[], logs:[],
   funcoes:[],
   usuarios:[],
@@ -3654,7 +3716,7 @@ function init(){
 // ═══════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════
-const TITLES={dashboard:'Dashboard',projetos:'Projetos',colaboradores:'Colaboradores',atividades:'Atividades',presenca:'Controle de Presença',escalas:'Escalas',organograma:'Organograma da Equipe',relatorios:'Relatórios',exportar:'Exportar Dados',logs:'Histórico',usuarios:'Usuários',config:'Configurações'};
+const TITLES={dashboard:'Dashboard',projetos:'Projetos',colaboradores:'Colaboradores',curriculos:'Currículos',atividades:'Atividades',presenca:'Controle de Presença',escalas:'Escalas',organograma:'Organograma da Equipe',relatorios:'Relatórios',exportar:'Exportar Dados',logs:'Histórico',usuarios:'Usuários',config:'Configurações'};
 function go(id,btn){
   // Bloqueio: a página de Usuários é exclusiva do Administrador
   if(id==='usuarios' && typeof isAdmin==='function' && !isAdmin()){
@@ -3732,6 +3794,7 @@ function go(id,btn){
     renderOrg();
   }
   if(id==='config'){renderFuncList();}
+  if(id==='curriculos'){popSelects();renderCurriculos();}
   if(id==='dashboard'){popSelects();renderDash();}
   // Reaplica o travamento de projeto do Visualizador: os blocos acima
   // (popAtivSelects/popPresSelects) repõem a lista completa de projetos
@@ -4234,7 +4297,7 @@ function setTheme(t){
 // ═══════════════════════════════════════════
 function pjOpts(extra=''){return extra+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');}
 function popSelects(){
-  ['colPj','filColPj','filAtPj','atPj','presPj','escPj','relPj','expPj','orgPj','dkPjSel'].forEach(id=>{
+  ['colPj','curPj','filColPj','filAtPj','atPj','presPj','escPj','relPj','expPj','orgPj','dkPjSel'].forEach(id=>{
     const el=document.getElementById(id);if(!el)return;
     const first=el.options[0];
     el.innerHTML=(first&&first.value===''?first.outerHTML:'')+_projetosVisiveis().map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
@@ -4553,6 +4616,361 @@ function renderCol(){
     const p=S.projetos.find(x=>x.id==c.projeto);
     const resp=S.colaboradores.find(x=>x.id==c.responsavel);
     return`<tr><td style="font-family:'JetBrains Mono';color:var(--t3)">${String(i+1).padStart(2,'0')}</td><td class="b">${c.nome}</td><td>${c.funcao}</td><td>${c.telefone||'—'}</td><td style="font-size:10px">${c.camisa||'—'}/${c.calcado||'—'}</td><td><span class="badge ${sc[c.status]||'bgy'}">${c.status}</span></td><td style="font-size:11px">${resp?'<span style="color:var(--ac);font-weight:600">👤 '+resp.nome.split(' ')[0]+'</span>':'<span style="color:var(--t3)">—</span>'}</td><td>${p?`<span class="chip">🏗️ ${p.nome.substring(0,18)}</span>`:'<span style="color:var(--t3)">—</span>'}</td><td style="display:flex;gap:3px"><button class="btn xs" onclick="abrirColab(${c.id})">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delColab(${c.id})">🗑️</button></td></tr>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════
+// CURRÍCULOS — Candidatos e Processo de Contratação
+// ═══════════════════════════════════════════
+const TREINAMENTOS_PADRAO=['NR-10 — Instalações Elétricas','NR-35 — Trabalho em Altura','NR-33 — Espaços Confinados','NR-12 — Segurança em Máquinas','NR-06 — Uso de EPI','NR-18 — Segurança na Construção','Integração de Segurança (Site)','Direção Defensiva','Primeiros Socorros'];
+
+function popCurFuncSelect(selectedFunc){
+  if(typeof _migrarFuncoes==='function') _migrarFuncoes();
+  const sel=document.getElementById('curFunc');if(!sel)return;
+  const funcoesOrdenadas=[...(S.funcoes||[])].sort((a,b)=>a.nivel-b.nivel);
+  let html='<option value="">Selecione uma função</option>';
+  const niveis={};
+  funcoesOrdenadas.forEach(f=>{(niveis[f.nivel]=niveis[f.nivel]||[]).push(f);});
+  Object.keys(niveis).sort((a,b)=>a-b).forEach(nivel=>{
+    const label=(typeof HIERARQUIA!=='undefined'&&HIERARQUIA.LABELS[nivel])||'Nível '+nivel;
+    html+=`<optgroup label="${label}">`;
+    niveis[nivel].forEach(f=>{html+=`<option value="${f.nome}"${f.nome===selectedFunc?' selected':''}>${f.nome}</option>`;});
+    html+='</optgroup>';
+  });
+  if(selectedFunc && !S.funcoes?.find(f=>f.nome===selectedFunc)){
+    html+=`<option value="${selectedFunc}" selected>${selectedFunc} (função não cadastrada)</option>`;
+  }
+  sel.innerHTML=html;
+}
+function popCurRespSelect(excludeId){
+  const el=document.getElementById('curResp');if(!el)return;
+  const cur=el.value;
+  const list=S.colaboradores.filter(c=>c.id!=excludeId&&c.status!=='Desligado');
+  el.innerHTML='<option value="">Sem responsável</option>'+list.map(c=>'<option value="'+c.id+'"'+(c.id==cur?' selected':'')+'>'+c.nome+' — '+c.funcao+'</option>').join('');
+}
+
+function uploadCurriculoPdf(input){
+  const f=input.files[0];if(!f)return;
+  if(f.type!=='application/pdf'){notif('Selecione um arquivo PDF.','er');input.value='';return;}
+  if(f.size>8*1024*1024){notif('PDF muito grande (máx. 8 MB).','er');input.value='';return;}
+  const r=new FileReader();
+  r.onload=e=>{
+    window._curPdfDraft=e.target.result;
+    window._curPdfDraftNome=f.name;
+    document.getElementById('curPdfNome').textContent=f.name;
+    document.getElementById('curPdfVerBtn').style.display='';
+    document.getElementById('curPdfRemBtn').style.display='';
+  };
+  r.readAsDataURL(f);
+}
+function removerCurriculoPdfDraft(){
+  window._curPdfDraft=null;window._curPdfDraftNome='';
+  const inp=document.getElementById('curPdfInput');if(inp)inp.value='';
+  document.getElementById('curPdfNome').textContent='Nenhum arquivo selecionado';
+  document.getElementById('curPdfVerBtn').style.display='none';
+  document.getElementById('curPdfRemBtn').style.display='none';
+}
+function _abrirPdfDataUrl(dataUrl){
+  if(!dataUrl){notif('Nenhum currículo anexado.','er');return;}
+  const a=document.createElement('a');
+  a.href=dataUrl;a.target='_blank';a.rel='noopener';
+  document.body.appendChild(a);a.click();a.remove();
+}
+function abrirCurriculoPdf(){
+  if(window._curPdfDraft){_abrirPdfDataUrl(window._curPdfDraft);return;}
+  const id=parseInt(document.getElementById('curId').value)||0;
+  const c=id?S.curriculos.find(x=>x.id===id):null;
+  _abrirPdfDataUrl(c?c.arquivoPdf:null);
+}
+function verCurriculoPdfLista(id){
+  const c=S.curriculos.find(x=>x.id===id);
+  _abrirPdfDataUrl(c?c.arquivoPdf:null);
+}
+
+function calcProgressoCurriculo(cur){
+  if(!cur)return 0;
+  if(cur.situacao==='candidato')return 0;
+  if(cur.situacao==='convertido')return 100;
+  const e=cur.etapas||{};
+  let done=0;
+  if(e.aso)done++;
+  if((e.treinamentos||[]).length>0)done++;
+  if(e.assinatura)done++;
+  return Math.round(done/3*100);
+}
+function fmtDuracaoContratacao(ms){
+  if(ms==null||isNaN(ms)||ms<0)return '—';
+  const totalMin=Math.round(ms/60000);
+  const dias=Math.floor(totalMin/1440);
+  const horas=Math.floor((totalMin%1440)/60);
+  const min=totalMin%60;
+  if(dias>0)return dias+'d '+horas+'h';
+  if(horas>0)return horas+'h '+min+'min';
+  return min+'min';
+}
+
+function _onChangeSituacaoCurModal(){
+  const id=parseInt(document.getElementById('curId').value)||0;
+  const val=document.getElementById('curSituacao').value;
+  if(!id){renderCurProcessoSecao(null,val);return;}
+  const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
+  if(val==='contratacao'&&cur.situacao==='candidato'){
+    cur.situacao='contratacao';
+    cur.contratacaoInicio=cur.contratacaoInicio||Date.now();
+    save();renderCurriculos();
+    log('Processo de contratação iniciado: '+cur.nome,'🚀');
+  }else if(val==='candidato'&&cur.situacao==='contratacao'){
+    if(!confirm('Voltar para "Candidato" reinicia o processo de contratação (ASO, treinamentos e assinatura marcados serão perdidos). Confirmar?')){
+      document.getElementById('curSituacao').value='contratacao';
+      return;
+    }
+    cur.situacao='candidato';
+    cur.contratacaoInicio=null;cur.contratacaoFim=null;cur.tempoContratacaoMs=null;
+    cur.etapas={aso:false,treinamentos:[],assinatura:false};
+    save();renderCurriculos();
+  }
+  renderCurProcessoSecao(cur,cur.situacao);
+}
+
+function renderCurProcessoSecao(cur,situacaoAtual){
+  const wrap=document.getElementById('curProcessoWrap');if(!wrap)return;
+  situacaoAtual=situacaoAtual||(cur?cur.situacao:'candidato');
+  if(!cur){
+    wrap.innerHTML=situacaoAtual==='contratacao'
+      ?'<div class="fg" style="padding:10px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--t2);">💡 Salve os dados básicos primeiro — a caixa do processo de contratação aparece aqui depois de salvar.</div>'
+      :'';
+    return;
+  }
+  if(cur.situacao==='candidato'){wrap.innerHTML='';return;}
+
+  const etapas=cur.etapas||(cur.etapas={aso:false,treinamentos:[],assinatura:false});
+  const pct=calcProgressoCurriculo(cur);
+  const convertido=cur.situacao==='convertido';
+  const tempoTxt=fmtDuracaoContratacao(cur.contratacaoFim?cur.tempoContratacaoMs:(cur.contratacaoInicio?Date.now()-cur.contratacaoInicio:null));
+
+  let html='<div class="fg" style="padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+  html+='<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ac);">🚀 Processo de Contratação</div>';
+  html+='<div style="font-size:12px;font-weight:700;color:var(--ac);">'+pct+'%</div>';
+  html+='</div>';
+  html+='<div class="hprog" style="margin-bottom:12px;"><div class="hprog-fill" style="width:'+pct+'%;"></div></div>';
+
+  if(convertido){
+    html+='<span class="badge bg-gn" style="margin-bottom:10px;display:inline-flex;">✅ Convertido em colaborador</span><br><br>';
+  }
+
+  html+='<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;'+(convertido?'':'cursor:pointer;')+'">';
+  html+='<input type="checkbox" '+(etapas.aso?'checked':'')+' '+(convertido?'disabled':'')+' onchange="toggleAsoCurriculo('+cur.id+')"> ✅ ASO Realizado';
+  html+='</label>';
+
+  html+='<div style="font-size:12px;font-weight:600;color:var(--t2);margin-bottom:6px;">🎓 Treinamentos realizados</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">';
+  TREINAMENTOS_PADRAO.forEach(t=>{
+    const on=etapas.treinamentos.includes(t);
+    html+='<button type="button" class="btn xs" style="'+(on?'background:var(--ac);color:#fff;border-color:var(--ac);':'')+'" '+(convertido?'disabled':'')+' onclick="toggleTreinamentoCurriculo('+cur.id+',\''+t.replace(/'/g,"\\'")+'\')">'+(on?'✓ ':'')+t+'</button>';
+  });
+  html+='</div>';
+  const extras=(etapas.treinamentos||[]).filter(t=>!TREINAMENTOS_PADRAO.includes(t));
+  if(extras.length){
+    html+='<div style="margin-bottom:8px;">'+extras.map(t=>'<span class="chip" style="margin:0 4px 4px 0;">'+t+(convertido?'':' <span style="cursor:pointer" onclick="toggleTreinamentoCurriculo('+cur.id+',\''+t.replace(/'/g,"\\'")+'\')">✕</span>')+'</span>').join('')+'</div>';
+  }
+  if(!convertido){
+    html+='<div style="display:flex;gap:6px;margin-bottom:12px;">';
+    html+='<input class="fi" id="curTreinoCustom" placeholder="Outro treinamento..." style="margin:0;flex:1;font-size:12px;">';
+    html+='<button class="btn xs" onclick="adicionarTreinamentoCustom('+cur.id+')">+ Adicionar</button>';
+    html+='</div>';
+  }
+
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding-top:10px;border-top:1px solid var(--border);">';
+  html+='<div style="font-size:11px;color:var(--t3);">⏱ Tempo de contratação<br><b style="font-size:13px;color:var(--t1);">'+tempoTxt+'</b></div>';
+  if(!convertido){
+    html+='<button class="btn prim" onclick="concluirContratacao('+cur.id+')">✍️ Assinatura — Concluir Contratação</button>';
+  }
+  html+='</div>';
+  html+='</div>';
+  wrap.innerHTML=html;
+}
+
+function toggleAsoCurriculo(id){
+  const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
+  cur.etapas.aso=!cur.etapas.aso;
+  save();renderCurProcessoSecao(cur);renderCurriculos();
+  log((cur.etapas.aso?'ASO marcado: ':'ASO desmarcado: ')+cur.nome,'🏥');
+}
+function toggleTreinamentoCurriculo(id,nome){
+  const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
+  const arr=cur.etapas.treinamentos||(cur.etapas.treinamentos=[]);
+  const idx=arr.indexOf(nome);
+  if(idx>=0)arr.splice(idx,1);else arr.push(nome);
+  save();renderCurProcessoSecao(cur);renderCurriculos();
+}
+function adicionarTreinamentoCustom(id){
+  const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
+  const el=document.getElementById('curTreinoCustom');
+  const val=(el?.value||'').trim();if(!val)return;
+  const arr=cur.etapas.treinamentos||(cur.etapas.treinamentos=[]);
+  if(!arr.includes(val))arr.push(val);
+  save();renderCurProcessoSecao(cur);renderCurriculos();
+}
+
+function _converterCurriculoEmColaborador(cur){
+  const novo={
+    id:Date.now(),
+    nome:cur.nome,funcao:cur.funcao,disciplina:cur.disciplina||'',
+    contratacao:new Date().toISOString().split('T')[0],
+    email:cur.email||'',telefone:cur.telefone||'',pix:cur.pix||'',
+    camisa:cur.camisa||'M',calca:cur.calca||'',calcado:cur.calcado||'',
+    status:'Ativo',projeto:cur.projeto||'',responsavel:cur.responsavel||null,
+    obs:(cur.obs?cur.obs+'\n\n':'')+'Convertido de currículo — contratação concluída em '+new Date().toLocaleDateString('pt-BR')+'.'
+  };
+  S.colaboradores.push(novo);
+  return novo.id;
+}
+function concluirContratacao(id){
+  const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
+  if(!cur.etapas.aso){notif('Marque o ASO como realizado antes de concluir.','er');return;}
+  if(!(cur.etapas.treinamentos||[]).length){notif('Indique ao menos um treinamento realizado antes de concluir.','er');return;}
+  if(!confirm('Concluir a contratação de "'+cur.nome+'"? Isso vai assinar o processo e criar o colaborador automaticamente na lista principal.'))return;
+  cur.etapas.assinatura=true;
+  cur.contratacaoFim=Date.now();
+  cur.tempoContratacaoMs=cur.contratacaoFim-(cur.contratacaoInicio||cur.contratacaoFim);
+  const novoId=_converterCurriculoEmColaborador(cur);
+  cur.colaboradorId=novoId;
+  cur.situacao='convertido';
+  save();
+  fechar('mCurriculo');
+  renderCurriculos();renderCol();renderDash();
+  log('Contratação concluída: '+cur.nome+' → colaborador criado','✍️');
+  notif('🎉 Contratação concluída! '+cur.nome+' agora é colaborador.','ok');
+}
+
+function abrirCurriculo(id){
+  document.getElementById('mCurTit').textContent='🧾 Novo Currículo';
+  document.getElementById('curId').value='';
+  ['curNome','curDisc','curEmail','curTel','curPix','curCalc','curSap','curObs'].forEach(x=>document.getElementById(x)&&(document.getElementById(x).value=''));
+  document.getElementById('curCam').value='M';
+  document.getElementById('curSituacao').value='candidato';
+  document.getElementById('curSituacao').disabled=false;
+  window._curPdfDraft=undefined;window._curPdfDraftNome='';
+  const pdfInp=document.getElementById('curPdfInput');if(pdfInp)pdfInp.value='';
+  document.getElementById('curPdfNome').textContent='Nenhum arquivo selecionado';
+  document.getElementById('curPdfVerBtn').style.display='none';
+  document.getElementById('curPdfRemBtn').style.display='none';
+  popCurFuncSelect('');popSelects();popCurRespSelect('');
+  document.getElementById('curPj').value='';
+  document.getElementById('curResp').value='';
+
+  let cur=null;
+  if(id){
+    cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
+    document.getElementById('mCurTit').textContent='✏️ Editar Currículo';
+    document.getElementById('curId').value=cur.id;
+    document.getElementById('curNome').value=cur.nome;
+    popCurFuncSelect(cur.funcao);
+    document.getElementById('curDisc').value=cur.disciplina||'';
+    document.getElementById('curEmail').value=cur.email||'';
+    document.getElementById('curTel').value=cur.telefone||'';
+    document.getElementById('curPix').value=cur.pix||'';
+    document.getElementById('curCam').value=cur.camisa||'M';
+    document.getElementById('curCalc').value=cur.calca||'';
+    document.getElementById('curSap').value=cur.calcado||'';
+    document.getElementById('curPj').value=cur.projeto||'';
+    popCurRespSelect(cur.id);
+    document.getElementById('curResp').value=cur.responsavel||'';
+    document.getElementById('curObs').value=cur.obs||'';
+    document.getElementById('curSituacao').value=cur.situacao==='convertido'?'contratacao':cur.situacao;
+    document.getElementById('curSituacao').disabled=cur.situacao==='convertido';
+    if(cur.arquivoPdf){
+      document.getElementById('curPdfNome').textContent=cur.arquivoPdfNome||'curriculo.pdf';
+      document.getElementById('curPdfVerBtn').style.display='';
+      document.getElementById('curPdfRemBtn').style.display=cur.situacao==='convertido'?'none':'';
+    }
+  }
+  abrir('mCurriculo');
+  renderCurProcessoSecao(cur,document.getElementById('curSituacao').value);
+}
+
+function delCurriculo(id){
+  const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
+  if(cur.situacao==='convertido'){notif('Este currículo já foi convertido em colaborador e não pode ser excluído.','er');return;}
+  if(!confirm('Excluir o currículo de "'+cur.nome+'"?'))return;
+  S.curriculos=S.curriculos.filter(x=>x.id!==id);
+  save();renderCurriculos();
+  log('Currículo excluído: '+cur.nome,'🗑️');
+  notif('Currículo excluído.');
+}
+
+function salvarCurriculo(){
+  const nome=document.getElementById('curNome').value.trim();
+  const func=document.getElementById('curFunc').value.trim();
+  if(!nome||!func){notif('Nome e função obrigatórios','er');return;}
+  const id=parseInt(document.getElementById('curId').value)||0;
+  const respVal=document.getElementById('curResp').value;
+  const situacaoSel=document.getElementById('curSituacao').value;
+  const existente=id?S.curriculos.find(x=>x.id===id):null;
+  const jaEraContratacao=existente&&existente.situacao!=='candidato';
+
+  let arquivoPdf,arquivoPdfNome;
+  if(window._curPdfDraft===undefined){
+    arquivoPdf=existente?existente.arquivoPdf:'';
+    arquivoPdfNome=existente?existente.arquivoPdfNome:'';
+  }else if(window._curPdfDraft===null){
+    arquivoPdf='';arquivoPdfNome='';
+  }else{
+    arquivoPdf=window._curPdfDraft;arquivoPdfNome=window._curPdfDraftNome;
+  }
+
+  const c={
+    id:id||Date.now(),
+    nome,funcao:func,
+    disciplina:document.getElementById('curDisc').value.trim(),
+    email:document.getElementById('curEmail').value.trim(),
+    telefone:document.getElementById('curTel').value.trim(),
+    pix:document.getElementById('curPix').value.trim(),
+    camisa:document.getElementById('curCam').value,
+    calca:document.getElementById('curCalc').value.trim(),
+    calcado:document.getElementById('curSap').value.trim(),
+    projeto:document.getElementById('curPj').value,
+    responsavel:respVal?parseInt(respVal):null,
+    obs:document.getElementById('curObs').value,
+    situacao:existente&&existente.situacao==='convertido'?'convertido':situacaoSel,
+    arquivoPdf,arquivoPdfNome,
+    etapas:existente?existente.etapas:{aso:false,treinamentos:[],assinatura:false},
+    contratacaoInicio:existente?existente.contratacaoInicio:null,
+    contratacaoFim:existente?existente.contratacaoFim:null,
+    tempoContratacaoMs:existente?existente.tempoContratacaoMs:null,
+    colaboradorId:existente?existente.colaboradorId:null
+  };
+  if(!jaEraContratacao&&c.situacao==='contratacao'){
+    c.contratacaoInicio=Date.now();
+  }
+  if(id){const i=S.curriculos.findIndex(x=>x.id===id);if(i>-1)S.curriculos[i]=c;}
+  else S.curriculos.push(c);
+  save();fechar('mCurriculo');renderCurriculos();
+  log((id?'Currículo editado: ':'Currículo cadastrado: ')+nome,'🧾');
+  notif(id?'Currículo atualizado!':'Currículo cadastrado!');
+  window._curPdfDraft=undefined;
+}
+
+function renderCurriculos(){
+  const srch=(document.getElementById('srCur')?.value||'').toLowerCase();
+  const fp=document.getElementById('filCurPj')?.value||'';
+  const fs=document.getElementById('filCurSit')?.value||'';
+  let list=S.curriculos.slice();
+  const idsPerm=_idsProjetosVisiveis();
+  if(idsPerm)list=list.filter(c=>!c.projeto||idsPerm.includes(String(c.projeto)));
+  if(srch)list=list.filter(c=>c.nome.toLowerCase().includes(srch)||c.funcao.toLowerCase().includes(srch));
+  if(fp)list=list.filter(c=>c.projeto==fp);
+  if(fs)list=list.filter(c=>c.situacao===fs);
+  list.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR',{sensitivity:'base'}));
+  const tb=document.getElementById('tbCur');if(!tb)return;
+  const scSit={candidato:'bg-bl',contratacao:'bg-yl',convertido:'bg-gn'};
+  const lblSit={candidato:'Candidato',contratacao:'Em Contratação',convertido:'Convertido'};
+  if(!list.length){tb.innerHTML='<tr><td colspan="8" class="empty" style="padding:20px">Nenhum currículo</td></tr>';return;}
+  tb.innerHTML=list.map((c,i)=>{
+    const pct=calcProgressoCurriculo(c);
+    const tempo=c.contratacaoFim?fmtDuracaoContratacao(c.tempoContratacaoMs):(c.contratacaoInicio?fmtDuracaoContratacao(Date.now()-c.contratacaoInicio)+' (em curso)':'—');
+    return`<tr><td style="font-family:'JetBrains Mono';color:var(--t3)">${String(i+1).padStart(2,'0')}</td><td class="b">${c.nome}</td><td>${c.funcao}</td><td><span class="badge ${scSit[c.situacao]||'bg-bl'}">${lblSit[c.situacao]||c.situacao}</span></td><td style="min-width:110px"><div class="hprog"><div class="hprog-fill" style="width:${pct}%"></div></div><div style="font-size:10px;color:var(--t3);margin-top:2px">${pct}%</div></td><td style="font-size:11px">${tempo}</td><td>${c.arquivoPdf?'<button class="btn xs" onclick="verCurriculoPdfLista('+c.id+')">📄 Ver</button>':'<span style="color:var(--t3)">—</span>'}</td><td style="display:flex;gap:3px"><button class="btn xs" onclick="abrirCurriculo(${c.id})">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delCurriculo(${c.id})">🗑️</button></td></tr>`;
   }).join('');
 }
 
