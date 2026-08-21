@@ -4725,23 +4725,27 @@ function verCurriculoPdfLista(id){
   _abrirPdfDataUrl(c?c.arquivoPdf:null);
 }
 
-// Lista de NRs extras deste candidato (adicionadas pelo "+ Adicionar NR" —
-// ficam registradas como exigência do checklist dele mesmo enquanto
-// desmarcadas, exatamente como uma NR padrão). Currículos salvos antes desta
-// mudança guardavam o extra já dentro de "treinamentos" (marcado na hora) —
-// nesse caso derivamos a lista a partir de lá pra não perder o histórico.
-function _extrasDoCurriculo(cur){
-  const e=cur.etapas||{};
-  if(Array.isArray(e.treinamentosExtras))return e.treinamentosExtras;
-  return (e.treinamentos||[]).filter(t=>!TREINAMENTOS_PADRAO.includes(t));
+// Lista de NRs exigidas DESTE candidato — começa como uma cópia do catálogo
+// padrão assim que ele entra em "Em Contratação", mas é 100% editável a
+// partir daí: dá pra remover qualquer uma (inclusive as padrão, se não se
+// aplicar a esse candidato/função) ou adicionar outras específicas. Currículos
+// salvos antes desta mudança (só tinham treinamentosExtras ou nem isso) são
+// migrados automaticamente pra esse formato na primeira leitura, preservando
+// o que já estava marcado/adicionado.
+function _nrsRequeridasCurriculo(cur){
+  const e=cur.etapas||(cur.etapas={});
+  if(Array.isArray(e.nrsRequeridas))return e.nrsRequeridas;
+  const base=TREINAMENTOS_PADRAO.slice();
+  (e.treinamentosExtras||[]).forEach(t=>{if(!base.includes(t))base.push(t);});
+  (e.treinamentos||[]).forEach(t=>{if(!base.includes(t))base.push(t);});
+  e.nrsRequeridas=base;
+  return base;
 }
-// Progresso: cada etapa individual conta 1 passo — ASO, CADA NR/treinamento
-// (do catálogo padrão + quaisquer NRs extras adicionadas pra este candidato)
-// e a Assinatura final. Ao inserir uma NR nova em TREINAMENTOS_PADRAO, o total
-// de passos cresce sozinho e a barra se ajusta pra todo mundo automaticamente.
+// Progresso: cada etapa individual conta 1 passo — ASO, CADA NR do checklist
+// deste candidato (que pode ter sido editado — NRs removidas ou adicionadas)
+// e a Assinatura final. Remover/adicionar uma NR ajusta o total na hora.
 function _totalPassosCurriculo(cur){
-  const extras=_extrasDoCurriculo(cur);
-  return 2+TREINAMENTOS_PADRAO.length+extras.length; // ASO + Assinatura + cada NR
+  return 2+_nrsRequeridasCurriculo(cur).length; // ASO + Assinatura + cada NR
 }
 function calcProgressoCurriculo(cur){
   if(!cur)return 0;
@@ -4749,7 +4753,8 @@ function calcProgressoCurriculo(cur){
   if(cur.situacao==='convertido')return 100;
   const e=cur.etapas||{};
   const totalPassos=_totalPassosCurriculo(cur);
-  let done=(e.treinamentos||[]).length;
+  const nrsReq=_nrsRequeridasCurriculo(cur);
+  let done=(e.treinamentos||[]).filter(t=>nrsReq.includes(t)).length;
   if(e.aso)done++;
   if(e.assinatura)done++;
   return totalPassos>0?Math.round(done/totalPassos*100):0;
@@ -4819,25 +4824,24 @@ function renderCurProcessoSecao(cur,situacaoAtual){
   html+='<input type="checkbox" '+(etapas.aso?'checked':'')+' '+(convertido?'disabled':'')+' onchange="toggleAsoCurriculo('+cur.id+')"> ✅ ASO Realizado';
   html+='</label>';
 
-  const extras=_extrasDoCurriculo(cur);
-  const totalNRs=TREINAMENTOS_PADRAO.length+extras.length;
-  const feitasNRs=(etapas.treinamentos||[]).length;
+  const nrsReq=_nrsRequeridasCurriculo(cur);
+  const totalNRs=nrsReq.length;
+  const feitasNRs=(etapas.treinamentos||[]).filter(t=>nrsReq.includes(t)).length;
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
   html+='<div style="font-size:12px;font-weight:600;color:var(--t2);">🎓 Treinamentos realizados</div>';
-  html+='<div style="font-size:11px;color:var(--t3);">'+Math.min(feitasNRs,totalNRs)+' de '+totalNRs+' concluídos</div>';
+  html+='<div style="font-size:11px;color:var(--t3);">'+feitasNRs+' de '+totalNRs+' concluídos</div>';
   html+='</div>';
-  html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">';
-  TREINAMENTOS_PADRAO.forEach(t=>{
-    const on=etapas.treinamentos.includes(t);
-    html+='<button type="button" class="btn xs" style="'+(on?'background:var(--ac);color:#fff;border-color:var(--ac);':'')+'" '+(convertido?'disabled':'')+' onclick="toggleTreinamentoCurriculo('+cur.id+',\''+t.replace(/'/g,"\\'")+'\')">'+(on?'✓ ':'')+t+'</button>';
-  });
-  extras.forEach(t=>{
+  html+='<div style="display:flex;flex-direction:column;gap:2px;margin-bottom:8px;max-height:240px;overflow-y:auto;">';
+  nrsReq.forEach(t=>{
     const on=etapas.treinamentos.includes(t);
     const tEsc=t.replace(/'/g,"\\'");
-    html+='<span style="display:inline-flex;align-items:center;">';
-    html+='<button type="button" class="btn xs" style="'+(on?'background:var(--ac);color:#fff;border-color:var(--ac);':'')+'" '+(convertido?'disabled':'')+' onclick="toggleTreinamentoCurriculo('+cur.id+',\''+tEsc+'\')">'+(on?'✓ ':'')+t+'</button>';
-    if(!convertido) html+='<span style="cursor:pointer;color:var(--rd);font-size:11px;margin-left:2px;" title="Remover esta NR do checklist" onclick="removerTreinamentoExtra('+cur.id+',\''+tEsc+'\')">✕</span>';
-    html+='</span>';
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;'+(on?'background:rgba(124,58,237,.08);':'')+'">';
+    html+='<label style="display:flex;align-items:center;gap:8px;font-size:13px;flex:1;min-width:0;'+(convertido?'':'cursor:pointer;')+'">';
+    html+='<input type="checkbox" '+(on?'checked':'')+' '+(convertido?'disabled':'')+' onchange="toggleTreinamentoCurriculo('+cur.id+',\''+tEsc+'\')">';
+    html+='<span style="overflow:hidden;text-overflow:ellipsis;'+(on?'color:var(--t1);':'color:var(--t2);')+'">'+t+'</span>';
+    html+='</label>';
+    if(!convertido) html+='<button type="button" class="icon-btn" style="color:var(--rd);flex-shrink:0;" title="Remover esta NR do checklist (não é exigida para este candidato)" onclick="removerNRCurriculo('+cur.id+',\''+tEsc+'\')">🗑️</button>';
+    html+='</div>';
   });
   html+='</div>';
   if(!convertido){
@@ -4870,26 +4874,27 @@ function toggleTreinamentoCurriculo(id,nome){
   if(idx>=0)arr.splice(idx,1);else arr.push(nome);
   save();renderCurProcessoSecao(cur);renderCurriculos();
 }
-// Adiciona uma NR fora do catálogo padrão ao checklist DESTE candidato — ela
-// entra como pendente (igual às NRs padrão), não já concluída: o usuário
-// ainda precisa clicar nela pra marcar como feita, exatamente como as outras.
+// Adiciona uma NR ao checklist DESTE candidato — entra pendente (precisa
+// marcar o checkbox depois), igual às demais.
 function adicionarTreinamentoCustom(id){
   const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
   const el=document.getElementById('curTreinoCustom');
   const val=(el?.value||'').trim();if(!val)return;
-  if(TREINAMENTOS_PADRAO.includes(val)){notif('Essa NR já está no catálogo padrão — marque o botão dela acima.','wn');return;}
-  if(!cur.etapas.treinamentosExtras)cur.etapas.treinamentosExtras=_extrasDoCurriculo(cur);
-  if(!cur.etapas.treinamentosExtras.includes(val))cur.etapas.treinamentosExtras.push(val);
+  const nrs=_nrsRequeridasCurriculo(cur);
+  if(nrs.includes(val)){notif('Essa NR já está no checklist deste candidato.','wn');return;}
+  nrs.push(val);
   if(el)el.value='';
   save();renderCurProcessoSecao(cur);renderCurriculos();
 }
-// Remove uma NR extra do checklist do candidato por completo (some do
-// catálogo dele, diferente de só desmarcar como concluída).
-function removerTreinamentoExtra(id,nome){
+// Remove QUALQUER NR do checklist do candidato (padrão ou adicionada) — some
+// da lista dele por completo, ajustando o total de passos/percentual na hora.
+// Diferente de só desmarcar: a NR deixa de ser exigida para este candidato.
+function removerNRCurriculo(id,nome){
   const cur=S.curriculos.find(x=>x.id===id);if(!cur)return;
-  if(!cur.etapas.treinamentosExtras)cur.etapas.treinamentosExtras=_extrasDoCurriculo(cur);
-  const iExtra=cur.etapas.treinamentosExtras.indexOf(nome);
-  if(iExtra>=0)cur.etapas.treinamentosExtras.splice(iExtra,1);
+  if(!confirm('Remover "'+nome+'" do checklist deste candidato? Ela deixará de ser exigida para ele.'))return;
+  const nrs=_nrsRequeridasCurriculo(cur);
+  const iNr=nrs.indexOf(nome);
+  if(iNr>=0)nrs.splice(iNr,1);
   const iFeito=(cur.etapas.treinamentos||[]).indexOf(nome);
   if(iFeito>=0)cur.etapas.treinamentos.splice(iFeito,1);
   save();renderCurProcessoSecao(cur);renderCurriculos();
