@@ -2380,7 +2380,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
     </div>
     <div class="fr">
       <div class="fg"><label class="fl">Status</label><select class="fi" id="atSt" onchange="onStatusAtivChange()"><option>Planejada</option><option>Em andamento</option><option>Concluída</option><option>Atrasada</option><option>Pausada</option></select></div>
-      <div class="fg"><label class="fl">% Concluído</label><input type="number" class="fi" id="atPct" min="0" max="100" step="5" placeholder="0"></div>
+      <div class="fg"><label class="fl">% Concluído</label><input type="number" class="fi" id="atPct" min="0" max="100" step="5" placeholder="0" oninput="atPctChange()"></div>
     </div>
     <!-- DETALHES OPCIONAIS -->
     <details id="atMais" style="border:1px solid var(--b1);border-radius:8px;padding:8px 10px;margin-bottom:10px;">
@@ -5605,6 +5605,12 @@ function _commitSalvamentoAtiv(id, nome, pjId, motivoAtraso){
     if(!terminoRealFinal) terminoRealFinal = hojeISO;
   }
 
+  // % concluído (lógica MS Project): >0 marca início real, 100 marca término real
+  const pctInformado = parseInt(document.getElementById('atPct')?.value)||0;
+  if(statusVal!=='Pausada'){
+    if(pctInformado>0 && !inicioRealFinal) inicioRealFinal = (novoIni2 && novoIni2<=hojeISO) ? novoIni2 : hojeISO;
+    if(pctInformado>=100 && !terminoRealFinal) terminoRealFinal = hojeISO;
+  }
   // RECALCULA status final baseado nas datas reais (consistência) — exceto Pausada
   let statusFinal = statusVal;
   if(statusVal !== 'Pausada' && typeof determinarStatusAuto === 'function'){
@@ -5946,7 +5952,7 @@ function renderAtiv(){
           atrasoBadge=`<span class="badge" style="background:#dc2626;color:#fff;font-size:9px;padding:1px 5px;margin-left:4px;">🔴 Atraso ${diffDays}d</span>`;
           rowStyle='style="background:rgba(220,38,38,0.15);"';
         }
-      }else if(diasAteInicio<0){
+      }else if(diasAteInicio<0&&!a.inicioReal){
         // Não iniciada (data de início no futuro)
         atrasoBadge=`<span class="badge" style="background:#6b7280;color:#fff;font-size:9px;padding:1px 5px;margin-left:4px;">⏳ Inicia em ${Math.abs(diasAteInicio)}d</span>`;
         rowStyle='style="background:rgba(107,114,128,0.08);"';
@@ -13648,6 +13654,16 @@ function _cronoMigrar(){
     p.linhaBaseSalva=iniciado?{data:new Date().toISOString(),usuario:'Sistema',auto:true}:false;
     mud=true;
   });
+  // % concluído já informado mas status "Planejada": passa a "Em andamento"/"Concluída" (como no MS Project)
+  const hojeM=new Date().toISOString().slice(0,10);
+  S.atividades.forEach(a=>{
+    if(a.resumo||a.status==='Pausada')return;
+    const pc=+a.pct||0;
+    if(pc>0&&!a.inicioReal){a.inicioReal=(a.inicio&&a.inicio<=hojeM)?a.inicio:hojeM;mud=true;}
+    if(pc>=100&&!a.terminoReal){a.terminoReal=hojeM;mud=true;}
+    if(pc>=100&&a.status!=='Concluída'){a.status='Concluída';mud=true;}
+    else if(pc>0&&pc<100&&a.status==='Planejada'){a.status=(a.fim&&hojeM>a.fim)?'Atrasada':'Em andamento';mud=true;}
+  });
   // Projetos em planejamento: linha de base sempre igual às datas atuais
   (S.projetos||[]).filter(p=>!p.linhaBaseSalva).forEach(p=>{
     S.atividades.forEach(a=>{if(String(a.projetoId)!==String(p.id)||a.resumo||!a.inicio)return;garantirBaseline(a);
@@ -13697,6 +13713,14 @@ function _atProjetoUI(mostrarSelect){
   box.style.display=esconder?'none':'';
   chip.style.display=esconder?'':'none';
   document.getElementById('atPjNome').textContent=p?p.nome:'';
+}
+function atPctChange(){
+  const v=parseInt(document.getElementById('atPct').value)||0,st=document.getElementById('atSt');
+  if(!st||st.disabled||st.value==='Pausada')return;
+  const hoje=new Date().toISOString().slice(0,10),ini=document.getElementById('atIni').value;
+  const eIR=document.getElementById('atIniReal'),eTR=document.getElementById('atFimReal');
+  if(v>=100){st.value='Concluída';if(!eIR.value)eIR.value=(ini&&ini<=hoje)?ini:hoje;if(!eTR.value)eTR.value=hoje;}
+  else if(v>0){if(st.value==='Planejada'||st.value==='Concluída')st.value='Em andamento';if(!eIR.value)eIR.value=(ini&&ini<=hoje)?ini:hoje;if(eTR.value&&v<100)eTR.value='';}
 }
 function _atModoResumo(ehResumo){
   ['atIni','atFim','atDur','atPct','atIniReal','atFimReal','atSt'].forEach(x=>{const e=document.getElementById(x);if(e)e.disabled=ehResumo;});
@@ -13956,7 +13980,7 @@ function _cronoCorBarra(a,pal){
     const diff=Math.floor((hoje-new Date(a.fim+'T00:00:00'))/86400000);
     const ate=Math.floor((hoje-new Date(a.inicio+'T00:00:00'))/86400000);
     if(diff>0)c=diff<=7?'#eab308':diff<=15?'#f97316':'#dc2626';
-    else if(ate<0)c='#6b7280';
+    else if(ate<0&&!a.inicioReal)c='#6b7280';
   }
   return c;
 }
