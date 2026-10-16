@@ -1042,6 +1042,10 @@ body.light-mode .mf{background:rgba(0,0,0,.03)}
 
 /* ═══ RESTRIÇÃO DO PERFIL VISUALIZADOR — só Atividades e Presença ═══ */
 #pg-atividades .tw table th,#pg-atividades .tw table td{padding:8px 6px!important;}
+#pg-atividades .card>.tw{max-height:68vh;overflow:auto;}
+#pg-atividades .card>.tw thead th{position:sticky;top:0;z-index:3;background:var(--bg3);box-shadow:0 1px 0 var(--b1);}
+#pg-atividades tr.crono-flash>td{animation:cronoFlash 2.6s ease-out;}
+@keyframes cronoFlash{0%,35%{background:rgba(56,189,248,.30);}100%{background:transparent;}}
 body.viewer-lock #sbNav .ns,
 body.viewer-lock #sbNav>button.nb,
 body.viewer-lock #sbNav>.nb-has-submenu{display:none!important;}
@@ -1347,7 +1351,8 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
       <button class="btn" onclick="imprimirCronograma()" title="Imprime tabela + Gantt no estilo MS Project">📅 Cronograma</button>
       <button class="btn" onclick="abrirReprogramacoes()" title="Lista de reprogramações, motivos e impactos">📜 Reprogramações</button>
       <button class="btn crono-ed" onclick="abrirFeriados()" title="Calendário de trabalho: feriados e exceções (sábado/domingo liberados)">🗓️ Calendário</button>
-      <button class="btn crono-ed" onclick="cronoNovaLinhaBase()" title="Grava as datas atuais como nova linha de base do projeto filtrado">📐 Nova linha de base</button>
+      <button class="btn crono-ed" id="btnLinhaBase" onclick="cronoNovaLinhaBase()" title="Grava as datas atuais como linha de base do projeto filtrado">📐 Linha de base</button>
+      <span id="cronoModoInfo" style="display:none;font-size:10px;font-weight:700;padding:5px 9px;border-radius:6px;"></span>
       <span style="margin-left:auto;display:flex;gap:4px;"><button class="btn xs" onclick="cronoExpandirTudo(true)" title="Expandir todas as linhas macro">▾ Expandir</button><button class="btn xs" onclick="cronoExpandirTudo(false)" title="Recolher todas as linhas macro">▸ Recolher</button></span>
     </div>
     <div class="card" style="margin-bottom:12px;">
@@ -5511,7 +5516,7 @@ function salvarAtiv(){
       const datasMudaram = (novoIni !== atividadeAtual.inicio) || (novoFim !== atividadeAtual.fim);
 
       // Se está atrasada e fez outra alteração não-data, ainda valida
-      if(!datasMudaram && !atividadeAtual.resumo && atividadeAtrasada(atividadeAtual)){
+      if(!datasMudaram && !atividadeAtual.resumo && atividadeAtrasada(atividadeAtual) && _cronoLinhaBaseSalva(atividadeAtual.projetoId)){
         validarAlteracaoAtrasada(atividadeAtual, (motivo) => {
           _executarSalvamentoAtiv(id, nome, pjId, motivo);
         });
@@ -5678,6 +5683,7 @@ function _commitSalvamentoAtiv(id, nome, pjId, motivoAtraso){
     aoConcluir: ()=>{
       if(pjAntigo!=null) _cronoAgendar(S.atividades, pjAntigo, false);
       _atAtivBaselineUpTs = a._upTs;
+      _cronoDestacar = a.id;
       save(); fechar('mAtiv'); renderAtiv(); renderDash();
       log((id?'Atividade editada: ':'Atividade criada: ')+nome+(hasInt?' ⚠️ c/interferência':''),'📋');
       notif(id?'Atividade atualizada!':'Atividade salva!');
@@ -5817,8 +5823,8 @@ function delAtiv(id){
   const a=S.atividades.find(x=>x.id===id);
   if(!a)return;
 
-  // Verifica se atividade está atrasada
-  if(atividadeAtrasada(a)){
+  // Verifica se atividade está atrasada (só exige senha depois da linha de base salva)
+  if(atividadeAtrasada(a) && _cronoLinhaBaseSalva(a.projetoId)){
     const senha=prompt('🔒 ATIVIDADE ATRASADA\n\nA atividade "'+(a?.nome||'')+'" está atrasada.\nDigite a senha de administrador para excluir:');
     if(senha!==(S.masterPass || CONFIG.SENHA_PADRAO)){
       notif('Senha incorreta ou operação cancelada','er');
@@ -5854,7 +5860,25 @@ function delAtiv(id){
     }
   });
 }
+function _cronoAtualizarModo(fp){
+  const b=document.getElementById('btnLinhaBase'),i=document.getElementById('cronoModoInfo');if(!b||!i)return;
+  const p=fp?S.projetos.find(x=>String(x.id)===String(fp)):null;
+  const base='font-size:10px;font-weight:700;padding:5px 9px;border-radius:6px;';
+  if(!p){b.textContent='📐 Linha de base';i.style.display='none';return;}
+  i.style.display='';
+  if(p.linhaBaseSalva){
+    b.textContent='📐 Nova linha de base';
+    i.textContent='🔒 Linha de base salva'+(p.linhaBaseSalva.data&&!p.linhaBaseSalva.auto?' em '+new Date(p.linhaBaseSalva.data).toLocaleDateString('pt-BR'):'')+' — mudanças exigem justificativa';
+    i.style.cssText=base+';background:rgba(34,197,94,.12);color:var(--gn);border:1px solid rgba(34,197,94,.35);';
+  } else {
+    b.textContent='📐 Salvar linha de base';
+    i.textContent='✏️ Modo planejamento — alterações livres até salvar a linha de base';
+    i.style.cssText=base+';background:rgba(234,179,8,.12);color:#eab308;border:1px solid rgba(234,179,8,.35);';
+  }
+}
+let _cronoDestacar=null;
 function renderAtiv(){
+  try{_cronoAtualizarModo(document.getElementById('filAtPj')?.value||'');}catch(e){}
   const fp=document.getElementById('filAtPj')?.value||'';
   const fs=document.getElementById('filAtSt')?.value||'';
   let list=S.atividades;
@@ -6019,9 +6043,14 @@ function renderAtiv(){
     const pctCell=`<div style="font-size:10px;font-weight:700;">${pctV}%</div><div style="height:3px;background:var(--b1);border-radius:2px;width:34px;"><div style="height:3px;width:${pctV}%;background:var(--gn);border-radius:2px;"></div></div>`;
     const estr=podeEd?`<button class="btn xs crono-ed" onclick="cronoNovaSub(${a.id})" title="Adicionar sublinha">➕</button><button class="btn xs crono-ed" onclick="cronoAvancar(${a.id})" title="Avançar nível (sair da linha macro)">⇤</button><button class="btn xs crono-ed" onclick="cronoRecuar(${a.id})" title="Recuar nível (virar sublinha da linha de cima)">⇥</button><button class="btn xs crono-ed" onclick="cronoMover(${a.id},-1)" title="Mover para cima">↑</button><button class="btn xs crono-ed" onclick="cronoMover(${a.id},1)" title="Mover para baixo">↓</button>`:'';
     if(inf.resumo&&!rowStyle)rowStyle='style="background:rgba(56,189,248,.05);"';
-    return`<tr ${rowStyle}><td style="font-family:'JetBrains Mono';color:var(--t3)" title="EAP ${inf.wbs}">${inf.num}</td><td class="b">${nomeCell}</td><td style="font-size:10px">${a.setor||(fp?'—':(p?p.nome:'—'))}</td><td style="font-size:11px;white-space:nowrap;${inf.resumo?'font-weight:700;':''}">${_cronoFmtDur(a.duracao??_cronoDur(a,_cronoCal(a.projetoId)))}</td><td style="font-size:11px;">${baselineDataInicio}</td><td style="font-size:11px;">${baselineDataFim}</td><td style="font-size:10px;font-family:'JetBrains Mono';color:var(--t2)">${inf.fmtPred||'—'}</td><td>${pctCell}</td><td>${inicioRealCell}</td><td>${terminoRealCell}</td><td style="font-size:10px;color:var(--t2)">${rn||'—'}</td><td>${statusCell}</td><td style="white-space:nowrap;"><div style="display:grid;grid-template-columns:repeat(4,auto);gap:2px;justify-content:start;">${histBtn}<button class="btn xs" onclick="abrirAtiv(${a.id})" title="Editar">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delAtiv(${a.id})" title="Excluir">🗑️</button>${estr}</div></td></tr>`;
+    return`<tr data-atid="${a.id}" ${rowStyle}><td style="font-family:'JetBrains Mono';color:var(--t3)" title="EAP ${inf.wbs}">${inf.num}</td><td class="b">${nomeCell}</td><td style="font-size:10px">${a.setor||(fp?'—':(p?p.nome:'—'))}</td><td style="font-size:11px;white-space:nowrap;${inf.resumo?'font-weight:700;':''}">${_cronoFmtDur(a.duracao??_cronoDur(a,_cronoCal(a.projetoId)))}</td><td style="font-size:11px;">${baselineDataInicio}</td><td style="font-size:11px;">${baselineDataFim}</td><td style="font-size:10px;font-family:'JetBrains Mono';color:var(--t2)">${inf.fmtPred||'—'}</td><td>${pctCell}</td><td>${inicioRealCell}</td><td>${terminoRealCell}</td><td style="font-size:10px;color:var(--t2)">${rn||'—'}</td><td>${statusCell}</td><td style="white-space:nowrap;"><div style="display:grid;grid-template-columns:repeat(4,auto);gap:2px;justify-content:start;">${histBtn}<button class="btn xs" onclick="abrirAtiv(${a.id})" title="Editar">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delAtiv(${a.id})" title="Excluir">🗑️</button>${estr}</div></td></tr>`;
   }).join('');
   renderGantt(linhas);
+  if(_cronoDestacar){
+    const tr=tb.querySelector('tr[data-atid="'+_cronoDestacar+'"]');_cronoDestacar=null;
+    if(tr){tr.classList.remove('crono-flash');void tr.offsetWidth;tr.classList.add('crono-flash');
+      const cx=tr.closest('.tw');if(cx){const top=tr.offsetTop-cx.clientHeight/2;cx.scrollTo({top:Math.max(0,top),behavior:'smooth'});}}
+  }
 }
 
 // Mostra histórico de revisões da baseline em modal/janela
@@ -13506,6 +13535,12 @@ function _cronoParsePred(txt,pjId,selfId){
 // ── Pipeline único de alteração do cronograma ──
 // Aplica a mudança numa cópia, reagenda, compara datas. Se alguma data planejada
 // já existente mudar, exige motivo + senha antes de gravar (lista de impactos).
+// Linha de base salva? Antes disso o projeto está em "modo planejamento": tudo livre, sem justificativa
+function _cronoLinhaBaseSalva(pjId){const p=S.projetos.find(x=>x.id==pjId);return !!(p&&p.linhaBaseSalva);}
+function _cronoBaseIgualAtual(lista,pjId){
+  lista.forEach(a=>{if(String(a.projetoId)!==String(pjId)||a.resumo)return;garantirBaseline(a);a.baseline.inicioOriginal=a.inicio||null;a.baseline.fimOriginal=a.fim||null;});
+  _cronoAgendar(lista,pjId,true);
+}
 function _cronoAplicar(o){
   const pjId=o.pjId;
   const doPj=a=>String(a.projetoId)===String(pjId);
@@ -13543,6 +13578,12 @@ function _cronoAplicar(o){
     S.atividades=lista;
     if(o.aoConcluir)o.aoConcluir(reg);
   };
+  if(!_cronoLinhaBaseSalva(pjId)){
+    // Modo planejamento: a linha de base acompanha as datas e nada é pedido
+    _cronoBaseIgualAtual(lista,pjId);
+    commit(null);
+    return true;
+  }
   if(impactos.length&&!o.semMotivo){
     const linhas=impactos.map(im=>`<tr><td style="padding:4px 6px;">${im.origem?'✏️':'↪️'} ${_escHtml(im.nome)}</td><td style="padding:4px 6px;white-space:nowrap;">${fd(im.de.inicio)} → ${fd(im.de.fim)}</td><td style="padding:4px 6px;white-space:nowrap;font-weight:700;">${fd(im.para.inicio)} → ${fd(im.para.fim)}</td><td style="padding:4px 6px;font-weight:700;color:${im.dias>0?'#f43f5e':im.dias<0?'#22c55e':'var(--t2)'}">${im.dias>0?'+':''}${im.dias}d</td></tr>`).join('');
     const resumo=`<div style="font-size:12px;color:var(--t2);margin-bottom:8px;">${_escHtml(o.descricao||'Alteração')}${o.origemNome?' — <strong>'+_escHtml(o.origemNome)+'</strong>':''}. As datas planejadas abaixo serão alteradas (↪️ = empurrada em cascata pelas predecessoras):</div>
@@ -13593,6 +13634,17 @@ function _cronoMigrar(){
   let mud=false;
   S.atividades.forEach((a,i)=>{if(a.ordem==null){a.ordem=i+1;mud=true;}});
   if(!Array.isArray(S.reprogramacoes)){S.reprogramacoes=[];mud=true;}
+  (S.projetos||[]).forEach(p=>{
+    if(p.linhaBaseSalva!==undefined)return;
+    const iniciado=S.atividades.some(a=>String(a.projetoId)===String(p.id)&&(a.inicioReal||a.terminoReal||a.status==='Em andamento'||a.status==='Concluída'));
+    p.linhaBaseSalva=iniciado?{data:new Date().toISOString(),usuario:'Sistema',auto:true}:false;
+    mud=true;
+  });
+  // Projetos em planejamento: linha de base sempre igual às datas atuais
+  (S.projetos||[]).filter(p=>!p.linhaBaseSalva).forEach(p=>{
+    S.atividades.forEach(a=>{if(String(a.projetoId)!==String(p.id)||a.resumo||!a.inicio)return;garantirBaseline(a);
+      if(a.baseline.inicioOriginal!==a.inicio||a.baseline.fimOriginal!==a.fim){a.baseline.inicioOriginal=a.inicio;a.baseline.fimOriginal=a.fim;mud=true;}});
+  });
   const semData=S.atividades.filter(a=>!a.inicio&&!a.terminoReal).length;
   [...new Set(S.atividades.map(a=>String(a.projetoId)))].forEach(pj=>{try{_cronoAgendar(S.atividades,pj,true);}catch(e){console.warn('crono rollup',e);}});
   if(mud||semData!==S.atividades.filter(a=>!a.inicio&&!a.terminoReal).length)save();
@@ -13708,6 +13760,16 @@ function cronoNovaLinhaBase(){
   const p=S.projetos.find(x=>x.id==pjId);
   const ativs=S.atividades.filter(a=>String(a.projetoId)===String(pjId)&&!a.resumo&&a.inicio);
   if(!ativs.length){notif('Projeto sem atividades com datas','wn');return;}
+  if(!_cronoLinhaBaseSalva(pjId)){
+    if(!confirm('📐 SALVAR LINHA DE BASE — '+(p?p.nome:'')+'\n\nAs datas atuais das '+ativs.length+' atividade(s) passam a ser o planejamento oficial.\n\nA partir de agora, qualquer reprogramação, inclusão com impacto ou exclusão que altere datas vai exigir categoria, motivo e senha de administrador, e ficará registrada na lista de impactos.\n\nConfirmar?'))return;
+    _cronoBaseIgualAtual(S.atividades,pjId);
+    const u=(S.usuarios||[]).find(x=>x.user===S.currentUser);
+    p.linhaBaseSalva={data:new Date().toISOString(),usuario:S.currentUser||'Sistema',usuarioNome:u?u.nome:(S.currentUser||'Sistema')};
+    if(!Array.isArray(S.reprogramacoes))S.reprogramacoes=[];
+    S.reprogramacoes.push({id:Date.now(),data:p.linhaBaseSalva.data,usuario:p.linhaBaseSalva.usuario,usuarioNome:p.linhaBaseSalva.usuarioNome,projetoId:parseInt(pjId),origemId:null,origemNome:'',acao:'Linha de base salva (início do controle)',tipo:'linha-base',categoria:'Linha de base',motivo:'Planejamento aprovado — '+ativs.length+' atividade(s)',impactoProjetoDias:0,impactos:[]});
+    save();renderAtiv();log('Linha de base salva do projeto '+(p?p.nome:'')+' ('+ativs.length+' atividades)','📐');notif('📐 Linha de base salva — mudanças agora exigem justificativa');
+    return;
+  }
   _reprogAbrir({titulo:'📐 Nova Linha de Base',resumoHtml:`<div style="font-size:12px;color:var(--t2);margin-bottom:10px;">As datas planejadas atuais das <strong>${ativs.length}</strong> atividade(s) de <strong>${_escHtml(p?p.nome:'')}</strong> passarão a ser a nova linha de base. A linha de base anterior fica guardada no histórico de cada atividade e no relatório de reprogramações.</div>`,categoriaSugerida:'Mudança de Escopo',onOk:reg=>{
     const rid=Date.now();
     const impactos=[];
