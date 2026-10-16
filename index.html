@@ -5393,6 +5393,8 @@ function abrirAtiv(id, preset){
   // Caixa enxuta: projeto oculto quando já conhecido; detalhes abertos só se houver algo preenchido
   document.getElementById('atPjBox').dataset.manual='';
   _atProjetoUI(false);
+  // Recarrega responsáveis já com as datas (avisos de folga / "também em")
+  if(document.getElementById('atPj').value) atDataChange();
   const det=document.getElementById('atMais');
   if(det){
     const aE=id?S.atividades.find(x=>x.id===id):null;
@@ -13199,6 +13201,16 @@ function _reactiveTick(){
 // ═══════════════════════════════════════════
 // ATIVIDADE — bloqueio visual de colaborador já alocado + verificação de conflito
 // ═══════════════════════════════════════════
+// Outras atividades (abertas e no mesmo período) em que o colaborador já é responsável
+function colabOutrasAtividades(colabId, iniAtiv, fimAtiv, excluirAtivId){
+  return S.atividades.filter(a=>{
+    if(a.id===excluirAtivId||a.resumo)return false;
+    if(!a.responsaveis||!a.responsaveis.some(r=>r==colabId))return false;
+    if(a.status==='Concluída'||a.status==='Pausada')return false;
+    if(!a.inicio||!a.fim||!iniAtiv||!fimAtiv)return false;
+    return iniAtiv<=a.fim&&fimAtiv>=a.inicio;
+  });
+}
 function colabJaAlocado(colabId, iniAtiv, fimAtiv, excluirAtivId){
   // Verifica se o colaborador está em outra atividade "Em andamento" ou "Planejada" no mesmo período
   return S.atividades.some(a=>{
@@ -13223,14 +13235,15 @@ function carregarColabsAtiv(sel=[]){
   if(!cols.length){el.innerHTML='<span style="font-size:11px;color:var(--t3)">'+(pjId?'Sem colaboradores neste projeto':'Selecione o projeto primeiro')+'</span>';return;}
   el.innerHTML=cols.map(c=>{
     const folga=estaEmFolga(c.id,iniAtiv||undefined);
-    const alocado=!folga&&colabJaAlocado(c.id,iniAtiv,fimAtiv,editId);
-    const bloqueado=folga||alocado;
-    const borderCol=folga?'var(--yl)':alocado?'var(--rd)':'var(--b1)';
+    // Pode estar em mais de uma atividade ao mesmo tempo: só avisa (folga/férias continua bloqueando)
+    const outras=folga?[]:colabOutrasAtividades(c.id,iniAtiv,fimAtiv,editId);
+    const bloqueado=folga;
+    const borderCol=folga?'var(--yl)':outras.length?'#38bdf8':'var(--b1)';
     const isChecked=sel.some(s=>s==c.id)&&!bloqueado;
     let tag='';
     if(folga)tag='<span style="font-size:9px;color:var(--yl);font-weight:700;margin-left:3px;">⚠ FOLGA</span>';
-    else if(alocado)tag='<span style="font-size:9px;color:var(--rd);font-weight:700;margin-left:3px;">🔒 ALOCADO</span>';
-    return`<label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:${bloqueado?'not-allowed':'pointer'};padding:3px 7px;background:var(--bg3);border-radius:5px;border:1px solid ${borderCol};${bloqueado?'opacity:.6;':''}" onchange="calcImpactoHH()">
+    else if(outras.length)tag=`<span title="Também responsável no mesmo período por: ${outras.map(o=>o.nome).join(', ').replace(/"/g,'&quot;')}" style="font-size:9px;color:#38bdf8;font-weight:700;margin-left:3px;">👥 também em ${outras.length} ativ.</span>`;
+    return`<label title="${outras.length?'Também em: '+outras.map(o=>o.nome).join(', ').replace(/"/g,'&quot;'):''}" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:${bloqueado?'not-allowed':'pointer'};padding:3px 7px;background:var(--bg3);border-radius:5px;border:1px solid ${borderCol};${bloqueado?'opacity:.6;':''}" onchange="calcImpactoHH()">
       <input type="checkbox" value="${c.id}" ${bloqueado?'disabled ':''} ${isChecked?'checked':''}>
       ${c.nome}${tag}
     </label>`;
