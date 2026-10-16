@@ -14100,7 +14100,7 @@ function _cronoResumoProjeto(pj,seq,info,cal){
     status:st.length&&st.every(x=>x==='Concluída')?'Concluída':st.some(x=>x==='Atrasada')?'Atrasada':(st.some(x=>x==='Em andamento'||x==='Concluída'))?'Em andamento':'Planejada',
     baseline:{inicioOriginal:bi[0]||ini,fimOriginal:bf.pop()||fim,revisoes:[]},predecessoras:[]};
 }
-function _cronoLinhas(list,{recolher=true,cabecalhos=true,totalProjeto=true}={}){
+function _cronoLinhas(list,{recolher=true,cabecalhos=true,totalProjeto=false}={}){
   const ids=new Set(list.map(a=>a.id));
   const pjs=[...new Set(list.map(a=>String(a.projetoId)))];
   const ordemPj=S.projetos.map(p=>String(p.id));
