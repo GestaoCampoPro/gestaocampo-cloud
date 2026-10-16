@@ -1041,6 +1041,7 @@ body.light-mode .mh{background:rgba(124,58,237,.03)}
 body.light-mode .mf{background:rgba(0,0,0,.03)}
 
 /* ═══ RESTRIÇÃO DO PERFIL VISUALIZADOR — só Atividades e Presença ═══ */
+#pg-atividades .tw table th,#pg-atividades .tw table td{padding:8px 6px!important;}
 body.viewer-lock #sbNav .ns,
 body.viewer-lock #sbNav>button.nb,
 body.viewer-lock #sbNav>.nb-has-submenu{display:none!important;}
@@ -1048,6 +1049,7 @@ body.viewer-lock #sbNav>button.nb[onclick^="go('atividades'"],
 body.viewer-lock #sbNav>button.nb[onclick^="go('presenca'"]{display:flex!important;}
 body.viewer-lock #pg-atividades button[onclick^="abrirAtiv("],
 body.viewer-lock #pg-atividades button[onclick^="delAtiv("],
+body.viewer-lock #pg-atividades .crono-ed,
 body.viewer-lock #pg-presenca button[onclick="salvarPres()"],
 body.viewer-lock #pg-presenca button[onclick^="marcarTodosVisiveis("]{display:none!important;}
 body.viewer-lock #pg-atividades select[onchange^="mudaStatusAtiv("],
@@ -1342,11 +1344,16 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
       </select>
       <button class="btn prim" onclick="abrirAtiv()">+ Nova Atividade</button>
       <button class="btn" onclick="abrirImpressaoAtiv()">🖨️ Imprimir</button>
+      <button class="btn" onclick="imprimirCronograma()" title="Imprime tabela + Gantt no estilo MS Project">📅 Cronograma</button>
+      <button class="btn" onclick="abrirReprogramacoes()" title="Lista de reprogramações, motivos e impactos">📜 Reprogramações</button>
+      <button class="btn crono-ed" onclick="abrirFeriados()" title="Calendário de trabalho: Seg–Sex menos feriados">🗓️ Feriados</button>
+      <button class="btn crono-ed" onclick="cronoNovaLinhaBase()" title="Grava as datas atuais como nova linha de base do projeto filtrado">📐 Nova linha de base</button>
+      <span style="margin-left:auto;display:flex;gap:4px;"><button class="btn xs" onclick="cronoExpandirTudo(true)" title="Expandir todas as linhas macro">▾ Expandir</button><button class="btn xs" onclick="cronoExpandirTudo(false)" title="Recolher todas as linhas macro">▸ Recolher</button></span>
     </div>
     <div class="card" style="margin-bottom:12px;">
       <div class="ct"><span class="cti">📋</span>Lista</div>
       <div class="tw"><table>
-        <thead><tr><th>#</th><th>Atividade</th><th>Setor</th><th>Início</th><th>Fim</th><th title="Data em que a atividade efetivamente começou">Início Real</th><th title="Data em que a atividade foi efetivamente concluída">Término Real</th><th>Responsáveis</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th title="Id da linha (use nas predecessoras)">Id</th><th style="min-width:200px;">Atividade</th><th>Setor</th><th title="Duração em dias úteis">Duração</th><th>Início</th><th>Fim</th><th title="Predecessoras: Id + tipo (TI/II/TT/IT) + defasagem">Predec.</th><th>%</th><th title="Data em que a atividade efetivamente começou">Início Real</th><th title="Data em que a atividade foi efetivamente concluída">Término Real</th><th>Responsáveis</th><th>Status</th><th></th></tr></thead>
         <tbody id="tbAtiv"></tbody>
       </table></div>
     </div>
@@ -2347,13 +2354,22 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
   <div class="modal">
     <div class="mh"><div class="mht" id="mAtTit">📋 Nova Atividade</div><button class="mc" onclick="fechar('mAtiv')">✕</button></div>
     <input type="hidden" id="atId">
-    <div class="fg"><label class="fl">Projeto *</label><select class="fi" id="atPj" onchange="carregarColabsAtiv()"><option value="">Selecione</option></select></div>
+    <div class="fg"><label class="fl">Projeto *</label><select class="fi" id="atPj" onchange="carregarColabsAtiv();_popAtPai()"><option value="">Selecione</option></select></div>
     <div class="fr"><div class="fg"><label class="fl">Nome *</label><input class="fi" id="atNome" placeholder="Ex: Montagem Painel"></div><div class="fg"><label class="fl">Setor</label><input class="fi" id="atSet" placeholder="Ex: SETOR 01"></div></div>
     <div class="fg"><label class="fl">Descrição</label><textarea class="fi" id="atDesc" rows="2"></textarea></div>
+    <!-- ESTRUTURA DO CRONOGRAMA -->
+    <div style="padding:10px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.2);border-radius:8px;margin-bottom:10px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#38bdf8;margin-bottom:6px;">🗂️ Estrutura do Cronograma</div>
+      <div class="fg"><label class="fl">Atividade principal (linha macro)</label><select class="fi" id="atPai"><option value="">— Nenhuma (esta é uma linha macro) —</option></select></div>
+      <div class="fg"><label class="fl">Predecessoras</label><input class="fi" id="atPred" placeholder="Ex: 3  ·  3TI+2d  ·  5II  ·  7TT-1d   (separe por ;)">
+        <div style="font-size:9px;color:var(--t3);margin-top:3px;line-height:1.4;">Use o <b>Id</b> da linha. <b>TI</b> Término→Início (padrão) · <b>II</b> Início→Início · <b>TT</b> Término→Término · <b>IT</b> Início→Término. Defasagem em dias úteis: +2d / -1d. Com predecessoras o início é calculado; uma data digitada vira restrição "não iniciar antes de".</div></div>
+      <div id="atResumoInfo" style="display:none;font-size:10px;color:#38bdf8;">ℹ️ Linha macro: datas, duração, % e status são consolidados automaticamente a partir das sublinhas.</div>
+    </div>
     <!-- DATAS PLANEJADAS -->
     <div style="padding:10px;background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.2);border-radius:8px;margin-bottom:10px;">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ac);margin-bottom:6px;">📅 Datas Planejadas (Linha de Base)</div>
-      <div class="fr"><div class="fg"><label class="fl">Início Planejado *</label><input type="date" class="fi" id="atIni" oninput="atDataChange()" onchange="autoAtualizarStatusModal()"></div><div class="fg"><label class="fl">Fim Planejado *</label><input type="date" class="fi" id="atFim" oninput="atDataChange()" onchange="autoAtualizarStatusModal()"></div></div>
+      <div class="fr"><div class="fg"><label class="fl">Início Planejado *</label><input type="date" class="fi" id="atIni" oninput="atIniChange();atDataChange()" onchange="autoAtualizarStatusModal()"></div><div class="fg"><label class="fl">Fim Planejado *</label><input type="date" class="fi" id="atFim" oninput="atFimChange();atDataChange()" onchange="autoAtualizarStatusModal()"></div></div>
+      <div class="fr"><div class="fg"><label class="fl">Duração (dias úteis · 0 = marco)</label><input type="number" class="fi" id="atDur" min="0" step="1" oninput="atDurChange()"></div><div class="fg"><label class="fl">% Concluído</label><input type="number" class="fi" id="atPct" min="0" max="100" step="5" placeholder="0"></div></div>
     </div>
     <!-- DATAS REAIS DE EXECUÇÃO -->
     <div style="padding:10px;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:8px;margin-bottom:10px;">
@@ -2484,7 +2500,62 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="prAtCol"> 👥 Colaboradores</label>
       </div>
     </div>
+    <div style="padding:10px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.2);border-radius:8px;margin-top:10px;">
+      <div style="font-size:11px;font-weight:700;color:#38bdf8;margin-bottom:6px;">📅 Cronograma (estilo MS Project)</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;">
+        <label>Papel <select class="fi" id="prCrPapel" style="width:80px;margin:0;display:inline-block;"><option>A4</option><option>A3</option></select></label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="prCrBase" checked> Linha de base</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="prCrReal" checked> Execução real</label>
+        <button class="btn sm" style="margin-left:auto;" onclick="imprimirCronograma()">📅 Imprimir Cronograma</button>
+      </div>
+    </div>
     <div class="mf"><button class="btn" onclick="fechar('mPrintAtiv')">Cancelar</button><button class="btn prim" onclick="executarImpressaoAtiv()">🖨️ Imprimir</button></div>
+  </div>
+</div>
+
+<!-- MODAL REPROGRAMAÇÃO (motivo + senha) -->
+<div class="ov" id="mReprog" style="z-index:1200;">
+  <div class="modal">
+    <div class="mh"><div class="mht" id="rpTit">📅 Reprogramação de Cronograma</div><button class="mc" onclick="_reprogCancelar()">✕</button></div>
+    <div id="rpResumo"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Categoria *</label><select class="fi" id="rpCat"></select></div>
+      <div class="fg"><label class="fl">Senha de administrador *</label><input type="password" class="fi" id="rpSenha" autocomplete="new-password"></div>
+    </div>
+    <div class="fg"><label class="fl">Motivo da reprogramação *</label><textarea class="fi" id="rpMotivo" rows="3" placeholder="Descreva o motivo e o impacto (ex.: fornecedor atrasou a entrega da válvula em 3 dias)"></textarea></div>
+    <div class="mf"><button class="btn" onclick="_reprogCancelar()">Cancelar</button><button class="btn prim" onclick="_reprogConfirmar()">✅ Confirmar</button></div>
+  </div>
+</div>
+
+<!-- MODAL FERIADOS (calendário do projeto) -->
+<div class="ov" id="mFeriados">
+  <div class="modal msm">
+    <div class="mh"><div class="mht">🗓️ Calendário de Trabalho — Feriados</div><button class="mc" onclick="fechar('mFeriados')">✕</button></div>
+    <div class="fg"><label class="fl">Projeto</label><select class="fi" id="ferPj" onchange="ferCarregar()"></select></div>
+    <div style="font-size:10px;color:var(--t3);margin-bottom:6px;">Dias úteis: segunda a sexta, exceto os feriados abaixo. As durações e o encadeamento das predecessoras usam este calendário.</div>
+    <div style="display:flex;gap:6px;align-items:end;margin-bottom:8px;">
+      <div class="fg" style="margin:0;"><label class="fl">Data</label><input type="date" class="fi" id="ferData" style="margin:0;"></div>
+      <div class="fg" style="margin:0;flex:1;"><label class="fl">Descrição</label><input class="fi" id="ferNome" placeholder="Ex: Aniversário da cidade" style="margin:0;"></div>
+      <button class="btn sm" onclick="ferAdd()">+ Adicionar</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:11px;">
+      Feriados nacionais de <input type="number" class="fi" id="ferAno" style="width:80px;margin:0;"> <button class="btn sm" onclick="ferImportar()">⬇️ Incluir</button>
+    </div>
+    <div id="ferLista" style="max-height:260px;overflow:auto;border:1px solid var(--b1);border-radius:7px;"></div>
+    <div class="mf"><button class="btn" onclick="fechar('mFeriados')">Cancelar</button><button class="btn prim" onclick="ferSalvar()">💾 Salvar calendário</button></div>
+  </div>
+</div>
+
+<!-- MODAL LISTA DE REPROGRAMAÇÕES / IMPACTOS -->
+<div class="ov" id="mReprogList">
+  <div class="modal" style="max-width:1100px;width:96vw;">
+    <div class="mh"><div class="mht">📜 Reprogramações e Impactos</div><button class="mc" onclick="fechar('mReprogList')">✕</button></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><select class="fi" id="rlPj" style="width:220px;margin:0;" onchange="renderReprogramacoes()"></select><button class="btn sm" style="margin-left:auto;" onclick="imprimirReprogramacoes()">🖨️ Imprimir</button></div>
+    <div id="rlResumo"></div>
+    <div class="tw" style="max-height:60vh;overflow:auto;"><table>
+      <thead><tr><th>Data</th><th>Usuário</th><th>Projeto / Origem</th><th>Categoria</th><th>Motivo</th><th>Atividades afetadas</th><th>Impacto término</th></tr></thead>
+      <tbody id="rlTabela"></tbody>
+    </table></div>
   </div>
 </div>
 
@@ -2590,7 +2661,7 @@ console.log('%c© 2026 Vagner Rodrigues. Todos os direitos reservados. Cópia, r
   // ═══════════════════════════════════════════════════════════════════════════
   const SK = CONFIG.STORAGE_KEY;
 let S = {
-  projetos:[], colaboradores:[], curriculos:[], atividades:[],
+  projetos:[], colaboradores:[], curriculos:[], atividades:[], reprogramacoes:[],
   presencas:{}, presencas_obs:{}, escalas:[], setores:[], logs:[],
   funcoes:[],
   usuarios:[],
@@ -3679,6 +3750,8 @@ function init(){
   try { if(typeof migrarAtividadesParaBaseline === 'function') migrarAtividadesParaBaseline(); } catch(e){ console.warn('migrarBaseline falhou:', e); }
   // Marca como "Atrasada" atividades cujo prazo passou sem termo real
   try { if(typeof atualizarStatusAtividadesVencidas === 'function') atualizarStatusAtividadesVencidas(); } catch(e){ console.warn('autoAtraso falhou:', e); }
+  // Cronograma: ordem das linhas e consolidação das linhas macro
+  try { if(typeof _cronoMigrar === 'function'){ _cronoMigrar(); renderAtiv(); } } catch(e){ console.warn('cronoMigrar falhou:', e); }
   // Ativa atalhos de teclado (Ctrl+K para pesquisa, etc.) — leve, não bloqueia
   try { if(typeof Atalhos !== 'undefined') Atalhos.inicializar(); } catch(e){ console.warn('Atalhos falhou:', e); }
   // Limpa lixeira de itens expirados (>30 dias)
@@ -5219,9 +5292,14 @@ function atualizarStatusAtividadesVencidas(){
 // ═══════════════════════════════════════════
 // ATIVIDADES
 // ═══════════════════════════════════════════
-function abrirAtiv(id){
+function abrirAtiv(id, preset){
   if(_bloquearSeVisualizador())return;
   _atAtivBaselineUpTs = 0;
+  _atIniAoAbrir = '';
+  document.getElementById('atPred').value='';
+  document.getElementById('atDur').value='';
+  document.getElementById('atPct').value='';
+  _atModoResumo(false);
   document.getElementById('mAtTit').textContent='📋 Nova Atividade';
   document.getElementById('atId').value='';
   ['atNome','atSet','atDesc','atIni','atFim','atIntMin','atIntDesc'].forEach(x=>document.getElementById(x).value='');
@@ -5267,9 +5345,32 @@ function abrirAtiv(id){
       document.getElementById('atIntTipo').value=a.interferencia.tipo||'';
       document.getElementById('atIntDesc').value=a.interferencia.desc||'';
     }
+    // Estrutura do cronograma
+    const T=_cronoArvore(S.atividades,a.projetoId);
+    const ehResumo=!!T.info.get(a.id)?.resumo;
+    _popAtPai(a.parentId||'');
+    document.getElementById('atPred').value=_cronoFmtPred(a,T.info);
+    document.getElementById('atDur').value=_cronoDur(a,_cronoCal(a.projetoId));
+    document.getElementById('atPct').value=a.pct||'';
+    _atIniAoAbrir=a.inicio||'';
+    _atModoResumo(ehResumo);
+  } else if(preset){
+    // Nova sublinha a partir de uma linha macro
+    document.getElementById('atPj').value=preset.projetoId;
+    carregarColabsAtiv([]);
+    _popAtPai(preset.parentId||'');
+    if(preset.inicio){document.getElementById('atIni').value=preset.inicio;}
+    document.getElementById('atDur').value=1;
+    atIniChange();
+    document.getElementById('mAtTit').textContent='📋 Nova Sublinha';
+  } else {
+    const fp=document.getElementById('filAtPj')?.value;
+    if(fp){document.getElementById('atPj').value=fp;carregarColabsAtiv([]);}
+    _popAtPai('');
   }
   abrir('mAtiv');
 }
+let _atIniAoAbrir='';
 // carregarColabsAtiv com bloqueio de alocação — definida abaixo
 function toggleInterferencia(){
   const show=document.getElementById('atIntBool').checked;
@@ -5372,32 +5473,12 @@ function salvarAtiv(){
     const atividadeAtual = S.atividades.find(x=>x.id===id);
     if(atividadeAtual){
       garantirBaseline(atividadeAtual);
-      // Detecta alteração de datas em relação à baseline (ou às datas atuais)
+      // Alteração de datas (desta atividade ou das subsequentes, via predecessoras)
+      // é tratada pela caixa de reprogramação em _cronoAplicar (motivo + senha).
       const datasMudaram = (novoIni !== atividadeAtual.inicio) || (novoFim !== atividadeAtual.fim);
 
-      if(datasMudaram){
-        // Exige senha admin para qualquer alteração de data após criação
-        solicitarSenhaAdmin(
-          'Atividade: "'+atividadeAtual.nome+'"\n\n'+
-          'Linha de base: '+(atividadeAtual.baseline.inicioOriginal||'?')+' → '+(atividadeAtual.baseline.fimOriginal||'?')+'\n'+
-          'Datas atuais: '+(atividadeAtual.inicio||'?')+' → '+(atividadeAtual.fim||'?')+'\n'+
-          'Novas datas: '+(novoIni||'?')+' → '+(novoFim||'?'),
-          (motivo) => {
-            // Registra revisão na baseline
-            registrarRevisaoBaseline(
-              atividadeAtual,
-              { inicio: atividadeAtual.inicio, fim: atividadeAtual.fim },
-              { inicio: novoIni, fim: novoFim },
-              motivo
-            );
-            _executarSalvamentoAtiv(id, nome, pjId, motivo);
-          }
-        );
-        return;
-      }
-
       // Se está atrasada e fez outra alteração não-data, ainda valida
-      if(atividadeAtrasada(atividadeAtual)){
+      if(!datasMudaram && !atividadeAtual.resumo && atividadeAtrasada(atividadeAtual)){
         validarAlteracaoAtrasada(atividadeAtual, (motivo) => {
           _executarSalvamentoAtiv(id, nome, pjId, motivo);
         });
@@ -5498,7 +5579,7 @@ function _commitSalvamentoAtiv(id, nome, pjId, motivoAtraso){
     }
   }
 
-  const a={
+  let a={
     id:id||Date.now(),
     nome,
     projetoId:parseInt(pjId),
@@ -5521,12 +5602,54 @@ function _commitSalvamentoAtiv(id, nome, pjId, motivoAtraso){
     _upBy: S.currentUser||null
   };
 
-  if(id){const i=S.atividades.findIndex(x=>x.id===id);if(i>-1)S.atividades[i]=a;}
-  else S.atividades.push(a);
-  _atAtivBaselineUpTs = a._upTs;
-  save(); fechar('mAtiv'); renderAtiv(); renderDash();
-  log((id?'Atividade editada: ':'Atividade criada: ')+nome+(hasInt?' ⚠️ c/interferência':''),'📋');
-  notif(id?'Atividade atualizada!':'Atividade salva!');
+  // ── Campos do cronograma (EAP, duração, predecessoras, %) ──
+  const original = id ? S.atividades.find(x=>x.id===id) : null;
+  const paiId = parseInt(document.getElementById('atPai').value)||null;
+  const pred = _cronoParsePred(document.getElementById('atPred').value, pjId, id||0);
+  if(!pred.ok){ notif(pred.erro,'er'); return; }
+  const durTxt = document.getElementById('atDur').value;
+  const cal = _cronoCal(pjId);
+  a.duracao = durTxt!=='' ? Math.max(0,parseInt(durTxt)||0) : (novoIni2&&novoFim2 ? Math.max(1,cal.dias(novoIni2,novoFim2)) : 1);
+  if(a.duracao===0 && a.inicio) a.fim = a.inicio;
+  const pctTxt = document.getElementById('atPct').value;
+  a.pct = statusFinal==='Concluída' ? 100 : Math.max(0,Math.min(100,parseInt(pctTxt)||0));
+  a.predecessoras = pred.preds;
+  a.parentId = paiId;
+  // Com predecessoras, data de início digitada vira restrição "não iniciar antes de"
+  if(pred.preds.length){
+    if(novoIni2 && novoIni2!==_atIniAoAbrir) a.inicioMin = novoIni2;
+    else a.inicioMin = original?.inicioMin || null;
+  } else a.inicioMin = null;
+  const mudouProjeto = original && String(original.projetoId)!==String(pjId);
+  if(original){
+    // Preserva campos que o formulário não conhece (ordem, outros módulos)
+    const novo = {...original, ...a};
+    if(mudouProjeto){ novo.parentId=null; novo.predecessoras=[]; novo.ordem=1e6; }
+    a = novo;
+  } else {
+    a.ordem = 1e6;
+  }
+  if(mudouProjeto && S.atividades.some(x=>x.parentId===id)){ notif('Esta linha macro tem sublinhas — mova as sublinhas antes de trocar o projeto.','er'); return; }
+  const pjAntigo = mudouProjeto ? original.projetoId : null;
+
+  _cronoAplicar({
+    pjId, origemId:a.id, origemNome:nome,
+    descricao: id ? 'Edição da atividade' : 'Inclusão de atividade',
+    mutar: lista=>{
+      const c = JSON.parse(JSON.stringify(a));
+      if(id){
+        const i=lista.findIndex(x=>x.id===id); if(i>-1) lista[i]=c;
+        if(mudouProjeto) lista.forEach(x=>{ if(x.predecessoras) x.predecessoras=x.predecessoras.filter(p=>p.id!==id); });
+      } else { c._novo=true; lista.push(c); }
+    },
+    aoConcluir: ()=>{
+      if(pjAntigo!=null) _cronoAgendar(S.atividades, pjAntigo, false);
+      _atAtivBaselineUpTs = a._upTs;
+      save(); fechar('mAtiv'); renderAtiv(); renderDash();
+      log((id?'Atividade editada: ':'Atividade criada: ')+nome+(hasInt?' ⚠️ c/interferência':''),'📋');
+      notif(id?'Atividade atualizada!':'Atividade salva!');
+    }
+  });
 }
 
 // Determina status automaticamente baseado nas datas reais e planejadas
@@ -5595,8 +5718,10 @@ function onStatusAtivChange(){
 // Quando status muda na linha da tabela — auto-preenche datas reais e salva
 function mudaStatusAtiv(id, novoStatus){
   if(_bloquearSeVisualizador())return;
-  const a = S.atividades.find(x => x.id === id);
-  if(!a) return;
+  const atual = S.atividades.find(x => x.id === id);
+  if(!atual) return;
+  // Trabalha numa cópia: só grava depois da eventual caixa de reprogramação
+  const a = JSON.parse(JSON.stringify(atual));
   const hojeISO = new Date().toISOString().split('T')[0];
   const statusAntigo = a.status;
   a.status = novoStatus;
@@ -5611,6 +5736,7 @@ function mudaStatusAtiv(id, novoStatus){
     if(statusAntigo === 'Concluída' && a.terminoReal){
       if(confirm('Atividade voltou para "Em andamento". Limpar a data de término real?')){
         a.terminoReal = null;
+        if(a.pct>=100) a.pct = 90;
         if(typeof notif === 'function') notif('🔄 Término real removido','ok');
       }
     }
@@ -5620,25 +5746,37 @@ function mudaStatusAtiv(id, novoStatus){
       a.terminoReal = hojeISO;
       if(typeof notif === 'function') notif('✅ Término real registrado em '+hojeISO,'ok');
     }
+    a.pct = 100;
   } else if(novoStatus === 'Planejada'){
     // Se voltar para planejada, limpa datas reais
     if(a.inicioReal || a.terminoReal){
       if(confirm('Voltar para Planejada? As datas reais registradas serão limpas.')){
         a.inicioReal = null;
         a.terminoReal = null;
+        a.pct = 0;
       } else {
-        a.status = statusAntigo;
         renderAtiv();
         return;
       }
     }
   }
 
-  save();
-  if(typeof Historico !== 'undefined') Historico.registrar('atividade','editar',a.id,null,a,'Status: '+statusAntigo+' → '+novoStatus);
-  log('Status atividade "'+a.nome+'": '+statusAntigo+' → '+novoStatus,'📋');
-  renderAtiv();
-  renderDash();
+  // Término/início real diferente do planejado empurra (ou antecipa) as subsequentes
+  _cronoAplicar({
+    pjId:a.projetoId, origemId:a.id, origemNome:a.nome,
+    descricao:'Mudança de status '+statusAntigo+' → '+novoStatus+(a.terminoReal&&a.fim&&a.terminoReal!==a.fim?' (término real '+fd(a.terminoReal)+', previsto '+fd(a.fim)+')':''),
+    categoriaSugerida:'Atualização de Avanço',
+    mutar: lista=>{ const i=lista.findIndex(x=>x.id===id); if(i>-1) lista[i]=a; },
+    aoCancelar: ()=>renderAtiv(),
+    aoConcluir: ()=>{
+      save();
+      const novo=S.atividades.find(x=>x.id===id);
+      if(typeof Historico !== 'undefined') Historico.registrar('atividade','editar',id,null,novo,'Status: '+statusAntigo+' → '+novoStatus);
+      log('Status atividade "'+a.nome+'": '+statusAntigo+' → '+novoStatus,'📋');
+      renderAtiv();
+      renderDash();
+    }
+  });
 }
 
 function delAtiv(id){
@@ -5666,10 +5804,22 @@ function delAtiv(id){
     if(!confirm('Remover atividade "'+(a?.nome||'')+'"?'))return;
   }
   
-  S.atividades=S.atividades.filter(x=>x.id!==id);
-  save(); renderAtiv();
-  log('Atividade removida: '+(a?.nome||''),'🗑️'); 
-  notif('Atividade removida.');
+  // Linha macro: remove junto as sublinhas; limpa vínculos que apontavam para elas
+  const T=_cronoArvore(S.atividades,a.projetoId);
+  const remover=new Set([id,..._cronoDescendentes(T.info,id)]);
+  if(remover.size>1 && !confirm('"'+a.nome+'" é uma linha macro. Suas '+(remover.size-1)+' sublinha(s) também serão removidas. Continuar?'))return;
+  _cronoAplicar({
+    pjId:a.projetoId, origemId:id, origemNome:a.nome, descricao:'Exclusão de atividade',
+    mutar: lista=>{
+      for(let i=lista.length-1;i>=0;i--){ if(remover.has(lista[i].id)) lista.splice(i,1); }
+      lista.forEach(x=>{ if(x.predecessoras) x.predecessoras=x.predecessoras.filter(p=>!remover.has(p.id)); });
+    },
+    aoConcluir: ()=>{
+      save(); renderAtiv(); renderDash();
+      log('Atividade removida: '+(a?.nome||'')+(remover.size>1?' (+'+(remover.size-1)+' sublinhas)':''),'🗑️');
+      notif('Atividade removida.');
+    }
+  });
 }
 function renderAtiv(){
   const fp=document.getElementById('filAtPj')?.value||'';
@@ -5697,10 +5847,17 @@ function renderAtiv(){
   const sc={'Planejada':'bb','Em andamento':'bg','Concluída':'bgy','Atrasada':'br','Pausada':'by'};
   const today=new Date();
   today.setHours(0,0,0,0);
-  if(!list.length){tb.innerHTML=`<tr><td colspan="10" class="empty" style="padding:18px">Nenhuma atividade</td></tr>`;}
-  else tb.innerHTML=list.map((a,i)=>{
+  // Ordem em árvore (EAP); com filtro de status mostra só as linhas que atendem, sem recolher
+  const linhas=_cronoLinhas(list,{recolher:!fs});
+  const podeEd=!(typeof isViewerReadOnly==='function'&&isViewerReadOnly());
+  if(!linhas.length){tb.innerHTML=`<tr><td colspan="13" class="empty" style="padding:18px">Nenhuma atividade</td></tr>`;}
+  else tb.innerHTML=linhas.map(l=>{
+    if(l.tipo==='pj')return`<tr><td colspan="13" style="background:var(--bg3);font-weight:800;color:var(--ac);font-size:11px;padding:6px 10px;">📁 ${_escHtml(l.nome)}</td></tr>`;
+    const a=l.a, inf=l.inf;
     const p=S.projetos.find(x=>x.id==a.projetoId);
-    const rn=(a.responsaveis||[]).map(rid=>{const c=S.colaboradores.find(x=>x.id===rid);return c?c.nome.split(' ')[0]:'?';}).join(', ');
+    let respIds=a.responsaveis||[];
+    if(inf.resumo){const T0=_cronoArvore(S.atividades,a.projetoId);respIds=[...new Set(_cronoDescendentes(T0.info,a.id).flatMap(x=>T0.porId.get(x)?.responsaveis||[]))];}
+    const rn=respIds.map(rid=>{const c=S.colaboradores.find(x=>x.id===rid);return c?c.nome.split(' ')[0]:'?';}).join(', ');
     const intBadge=a.interferencia?.houve?(()=>{const _min=a.interferencia.minutos||0;const _n=a.interferencia.colabs||0;const _tot=a.interferencia.totalMinutos||(_min*_n);const _h=Math.floor(_min/60),_m=_min%60;const _lbl=_h>0?(_h+'h'+(_m>0?' '+_m+'min':'')):((_m||_min)+'min');return`<span class="badge br" style="font-size:9px;padding:1px 5px;" title="${_min}min × ${_n} colab. = ${_tot}min totais — ${a.interferencia.tipo||''}">⚠️ ${_lbl}</span>`})():'';
     
     // Verifica se atividade está atrasada ou não iniciada
@@ -5818,9 +5975,20 @@ function renderAtiv(){
     }
 
     const editandoBadge = typeof _presencaBadgeEditando==='function' ? _presencaBadgeEditando(a.id) : '';
-    return`<tr ${rowStyle}><td style="font-family:'JetBrains Mono';color:var(--t3)">${i+1}</td><td class="b">${a.nome} ${intBadge}${atrasoBadge}${baselineBadge}${editandoBadge}</td><td style="font-size:10px">${a.setor||(p?p.nome:'—')}</td><td style="font-size:11px;">${baselineDataInicio}</td><td style="font-size:11px;">${baselineDataFim}</td><td>${inicioRealCell}</td><td>${terminoRealCell}</td><td style="font-size:10px;color:var(--t2)">${rn||'—'}</td><td><select class="fi" style="margin:0;padding:3px 5px;font-size:10px;width:120px" onchange="mudaStatusAtiv(${a.id},this.value)">${['Planejada','Em andamento','Concluída','Atrasada','Pausada'].map(s=>`<option ${a.status===s?'selected':''}>${s}</option>`).join('')}</select></td><td style="display:flex;gap:3px">${histBtn}<button class="btn xs" onclick="abrirAtiv(${a.id})">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delAtiv(${a.id})">🗑️</button></td></tr>`;
+    const marco=!inf.resumo&&(a.duracao??1)===0;
+    const tog=inf.resumo?`<span onclick="cronoToggle(${a.id})" title="Recolher/expandir sublinhas" style="cursor:pointer;color:var(--t2);width:14px;display:inline-block;font-size:12px;">${_cronoRecolhidos.has(a.id)?'▸':'▾'}</span>`:'<span style="width:12px;display:inline-block"></span>';
+    const critBadge=inf.critico&&!inf.resumo?'<span class="badge" title="Caminho crítico: folga zero — qualquer atraso atrasa o projeto" style="background:rgba(239,68,68,.15);color:#ef4444;font-size:9px;padding:1px 5px;margin-left:4px;border:1px solid rgba(239,68,68,.4);">⚡ Crítica</span>':'';
+    const nomeCell=`<div style="display:flex;align-items:center;gap:4px;padding-left:${inf.nivel*16}px;">${tog}${marco?'<span title="Marco" style="color:var(--ac)">◆</span>':''}<span style="${inf.resumo?'font-weight:800;':''}">${_escHtml(a.nome)}</span></div><div style="padding-left:${inf.nivel*16+16}px">${intBadge}${atrasoBadge}${baselineBadge}${critBadge}${editandoBadge}</div>`;
+    const statusCell=inf.resumo
+      ? `<span class="badge ${sc[a.status]||'bb'}" style="font-size:10px;" title="Consolidado das sublinhas">${a.status}</span>`
+      : `<select class="fi" style="margin:0;padding:3px 4px;font-size:10px;width:104px" onchange="mudaStatusAtiv(${a.id},this.value)">${['Planejada','Em andamento','Concluída','Atrasada','Pausada'].map(s=>`<option ${a.status===s?'selected':''}>${s}</option>`).join('')}</select>`;
+    const pctV=a.pct||0;
+    const pctCell=`<div style="font-size:10px;font-weight:700;">${pctV}%</div><div style="height:3px;background:var(--b1);border-radius:2px;width:34px;"><div style="height:3px;width:${pctV}%;background:var(--gn);border-radius:2px;"></div></div>`;
+    const estr=podeEd?`<button class="btn xs crono-ed" onclick="cronoNovaSub(${a.id})" title="Adicionar sublinha">➕</button><button class="btn xs crono-ed" onclick="cronoAvancar(${a.id})" title="Avançar nível (sair da linha macro)">⇤</button><button class="btn xs crono-ed" onclick="cronoRecuar(${a.id})" title="Recuar nível (virar sublinha da linha de cima)">⇥</button><button class="btn xs crono-ed" onclick="cronoMover(${a.id},-1)" title="Mover para cima">↑</button><button class="btn xs crono-ed" onclick="cronoMover(${a.id},1)" title="Mover para baixo">↓</button>`:'';
+    if(inf.resumo&&!rowStyle)rowStyle='style="background:rgba(56,189,248,.05);"';
+    return`<tr ${rowStyle}><td style="font-family:'JetBrains Mono';color:var(--t3)" title="EAP ${inf.wbs}">${inf.num}</td><td class="b">${nomeCell}</td><td style="font-size:10px">${a.setor||(fp?'—':(p?p.nome:'—'))}</td><td style="font-size:11px;white-space:nowrap;${inf.resumo?'font-weight:700;':''}">${_cronoFmtDur(a.duracao??_cronoDur(a,_cronoCal(a.projetoId)))}</td><td style="font-size:11px;">${baselineDataInicio}</td><td style="font-size:11px;">${baselineDataFim}</td><td style="font-size:10px;font-family:'JetBrains Mono';color:var(--t2)">${inf.fmtPred||'—'}</td><td>${pctCell}</td><td>${inicioRealCell}</td><td>${terminoRealCell}</td><td style="font-size:10px;color:var(--t2)">${rn||'—'}</td><td>${statusCell}</td><td style="white-space:nowrap;"><div style="display:grid;grid-template-columns:repeat(4,auto);gap:2px;justify-content:start;">${histBtn}<button class="btn xs" onclick="abrirAtiv(${a.id})" title="Editar">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delAtiv(${a.id})" title="Excluir">🗑️</button>${estr}</div></td></tr>`;
   }).join('');
-  renderGantt(list);
+  renderGantt(linhas);
 }
 
 // Mostra histórico de revisões da baseline em modal/janela
@@ -6416,6 +6584,7 @@ function imprimirDashboard(){
 
   // Atividades - com filtro de disciplina
   let ativsAtivas=S.atividades.filter(a=>{
+    if(a.resumo)return false;
     if(!_projetoPermitido(a.projetoId))return false;
     if(filPj&&String(a.projetoId)!==filPj)return false;
     return a.status!=='Concluída';
@@ -6730,7 +6899,7 @@ function renderDashKpis(){
 
   // Atividades atrasadas (só dos projetos que o usuário logado pode ver)
   const idsPermKpi = _idsProjetosVisiveis();
-  const ativsVisiveis = (S.atividades || []).filter(a => !idsPermKpi || idsPermKpi.includes(String(a.projetoId)));
+  const ativsVisiveis = (S.atividades || []).filter(a => !a.resumo && (!idsPermKpi || idsPermKpi.includes(String(a.projetoId))));
   const ativsTotal = ativsVisiveis.length;
   const ativsAtrasadas = ativsVisiveis.filter(a => {
     if(a.status === 'Concluída' || a.status === 'Pausada') return false;
@@ -6919,9 +7088,9 @@ function renderDash(){
   document.getElementById('dk-au').textContent=ta;
   document.getElementById('dk-pj').textContent=_projetosVisiveis().filter(p=>p.status==='Em andamento').length;
   // Contagem de atividades filtrada por projeto e disciplina
-  let ativsCount = filPj
+  let ativsCount = (filPj
     ? S.atividades.filter(a=>String(a.projetoId)===filPj)
-    : [...S.atividades];
+    : [...S.atividades]).filter(a=>!a.resumo);
   if(_dkDiscFiltrs.size){
     ativsCount = ativsCount.filter(a=>_dkDiscFiltrs.has((a.disciplina||'').trim()));
   }
@@ -10242,7 +10411,7 @@ async function _pullSilencioso(){
     const r = await client.from('app_state').select('dados').eq('id',SB_ROW_ID).maybeSingle();
     if(r.error || !r.data || !r.data.dados) return;
     const cloud = r.data.dados;
-    const modalAtivAberto = document.getElementById('mAtiv')?.classList.contains('on');
+    const modalAtivAberto = document.getElementById('mAtiv')?.classList.contains('on') || document.getElementById('mReprog')?.classList.contains('on');
     const atividadesLocais = S.atividades;
     window._syncingSupabase = true;
     Object.assign(S, cloud);
@@ -13003,6 +13172,7 @@ function colabJaAlocado(colabId, iniAtiv, fimAtiv, excluirAtivId){
   // Verifica se o colaborador está em outra atividade "Em andamento" ou "Planejada" no mesmo período
   return S.atividades.some(a=>{
     if(a.id===excluirAtivId)return false; // ignora a própria atividade ao editar
+    if(a.resumo)return false; // linha macro não aloca ninguém (só as sublinhas)
     if(!a.responsaveis||!a.responsaveis.some(r=>r==colabId))return false;
     if(a.status==='Concluída'||a.status==='Pausada')return false;
     if(!a.inicio||!a.fim)return true; // sem datas = considera conflito
@@ -13046,172 +13216,834 @@ function atDataChange(){
 }
 
 // ═══════════════════════════════════════════
-// GANTT — sincronização automática com atividades reais
+// CRONOGRAMA (lógica MS Project): EAP com linhas macro/sublinhas,
+// calendário Seg–Sex + feriados, predecessoras TI/II/TT/IT com defasagem,
+// reagendamento em cascata, caminho crítico e reprogramação com motivo.
+// ═══════════════════════════════════════════
+const CRONO_CATEGORIAS=['Chuva / Intempérie','Falta de Material','Atraso de Fornecedor','Falha de Equipamento','Solicitação do Cliente','Aguardando Liberação','Mudança de Escopo','Interferência de Terceiros','Erro de Planejamento','Atualização de Avanço','Antecipação','Outro'];
+const CRONO_DSEM=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const CRONO_MESES=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+let _cronoRecolhidos=new Set();
+try{_cronoRecolhidos=new Set(JSON.parse(localStorage.getItem(SK+'_cronoRecolhidos')||'[]'));}catch(e){}
+let _cronoCtx=new Map(); // id -> info da última renderização (num, nível, resumo, crítico...)
+
+function _isoAdd(iso,n){const d=new Date(iso+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+function _isoDow(iso){return new Date(iso+'T00:00:00Z').getUTCDay();}
+function _isoDiff(a,b){return Math.round((new Date(b+'T00:00:00Z')-new Date(a+'T00:00:00Z'))/86400000);}
+function _cronoFmtData(iso){if(!iso)return'—';const[y,m,d]=iso.split('-');return CRONO_DSEM[_isoDow(iso)]+' '+d+'/'+m+'/'+y.slice(2);}
+function _cronoFmtDur(d){return d===1?'1 dia':(d||0)+' dias';}
+
+// Calendário de trabalho do projeto (Seg–Sex, menos feriados cadastrados)
+const _cronoCalCache={};
+function _cronoCal(pjId){
+  const p=S.projetos.find(x=>x.id==pjId);
+  const fer=((p&&p.feriados)||[]).map(f=>f.data).filter(Boolean).sort();
+  const key=String(pjId||'')+'|'+fer.join(',');
+  if(_cronoCalCache[key])return _cronoCalCache[key];
+  const ferSet=new Set(fer);
+  const isWork=iso=>{const w=_isoDow(iso);return w!==0&&w!==6&&!ferSet.has(iso);};
+  const days=[],idx=new Map();
+  for(let d='2015-01-01';d<='2045-12-31';d=_isoAdd(d,1)){if(isWork(d)){idx.set(d,days.length);days.push(d);}}
+  const cal={
+    isWork,ferSet,
+    ceil(iso){let x=iso;for(let k=0;k<40&&!idx.has(x);k++)x=_isoAdd(x,1);return idx.has(x)?idx.get(x):0;},
+    floor(iso){let x=iso;for(let k=0;k<40&&!idx.has(x);k++)x=_isoAdd(x,-1);return idx.has(x)?idx.get(x):0;},
+    date(i){return days[Math.max(0,Math.min(days.length-1,i))];},
+    dias(ini,fim){if(!ini||!fim)return 0;return Math.max(0,this.floor(fim)-this.ceil(ini)+1);},
+    fimPorDuracao(ini,dur){const s=this.ceil(ini);return this.date(s+Math.max(dur,1)-1);}
+  };
+  _cronoCalCache[key]=cal;
+  return cal;
+}
+// Duração em dias úteis (0 = marco)
+function _cronoDur(a,cal){
+  if(typeof a.duracao==='number'&&a.duracao>=0)return a.duracao;
+  return Math.max(1,cal.dias(a.inicio,a.fim));
+}
+
+// Monta a árvore (EAP) de um projeto: ordem de exibição, numeração Id e código EAP
+function _cronoArvore(lista,pjId){
+  const doPj=lista.filter(a=>String(a.projetoId)===String(pjId));
+  const porId=new Map(doPj.map(a=>[a.id,a]));
+  const pos=new Map(lista.map((a,i)=>[a.id,i]));
+  const filhos=new Map();
+  doPj.forEach(a=>{const pid=(a.parentId&&porId.has(a.parentId)&&a.parentId!==a.id)?a.parentId:0;if(!filhos.has(pid))filhos.set(pid,[]);filhos.get(pid).push(a);});
+  const ord=(x,y)=>((x.ordem??(1e6+pos.get(x.id)))-(y.ordem??(1e6+pos.get(y.id))));
+  const seq=[],info=new Map();
+  const visit=(pid,nivel,prefix)=>{
+    (filhos.get(pid)||[]).sort(ord).forEach((a,i)=>{
+      if(info.has(a.id))return;
+      const wbs=prefix?prefix+'.'+(i+1):String(i+1);
+      const fs=filhos.get(a.id)||[];
+      info.set(a.id,{nivel,wbs,resumo:fs.length>0,filhos:fs.map(f=>f.id),pai:pid||0});
+      seq.push(a);
+      visit(a.id,nivel+1,wbs);
+    });
+  };
+  visit(0,0,'');
+  // Proteção: ciclos na hierarquia (pai apontando para descendente) viram linha macro
+  doPj.forEach(a=>{if(!info.has(a.id)){a.parentId=null;info.set(a.id,{nivel:0,wbs:String(seq.length+1),resumo:false,filhos:[],pai:0});seq.push(a);}});
+  seq.forEach((a,i)=>{info.get(a.id).num=i+1;});
+  return {seq,info,porId};
+}
+function _cronoDescendentes(info,id){const r=[];const st=[...(info.get(id)?.filhos||[])];while(st.length){const x=st.pop();r.push(x);st.push(...(info.get(x)?.filhos||[]));}return r;}
+function _cronoAncestrais(info,id){const r=[];let p=info.get(id)?.pai;while(p){r.push(p);p=info.get(p)?.pai;}return r;}
+
+// Reagenda o projeto (passo adiante do MS Project) e consolida as linhas macro.
+// soRollup=true: não altera datas das sublinhas, só recalcula as linhas macro.
+function _cronoAgendar(lista,pjId,soRollup){
+  const cal=_cronoCal(pjId);
+  const T=_cronoArvore(lista,pjId);
+  const {seq,info,porId}=T;
+  seq.forEach(a=>{if(Array.isArray(a.predecessoras))a.predecessoras=a.predecessoras.filter(p=>porId.has(p.id)&&p.id!==a.id);});
+  const val=new Map(),estado=new Map();
+  let ciclo=null;
+  const calc=id=>{
+    if(ciclo)return null;
+    if(estado.get(id)===2)return val.get(id);
+    if(estado.get(id)===1){ciclo=id;return null;}
+    estado.set(id,1);
+    const a=porId.get(id),inf=info.get(id);
+    let r;
+    if(inf.resumo){
+      let s=Infinity,f=-Infinity,es=Infinity,ef=-Infinity;
+      for(const c of inf.filhos){const v=calc(c);if(ciclo)return null;if(!v||v.S==null)continue;s=Math.min(s,v.S);f=Math.max(f,v.F);es=Math.min(es,v.eS);ef=Math.max(ef,v.eF);}
+      r=s===Infinity?{S:null,F:null,eS:null,eF:null,D:0}:{S:s,F:f,eS:es,eF:ef,D:f-s+1};
+    } else {
+      const D=_cronoDur(a,cal);
+      const preds=[...(a.predecessoras||[])];
+      _cronoAncestrais(info,id).forEach(pid=>preds.push(...(porId.get(pid)?.predecessoras||[])));
+      const fixo=!!a.inicioReal||a.status==='Concluída';
+      let S0=a.inicio?cal.ceil(a.inicio):null,agendado=false;
+      if(preds.length){
+        let lim=-Infinity;
+        for(const p of preds){
+          const pv=calc(p.id);if(ciclo)return null;
+          if(!pv||pv.S==null)continue;
+          const pa=porId.get(p.id);
+          const predMarco=!info.get(p.id).resumo&&_cronoDur(pa,cal)===0;
+          const lag=p.lag||0,Dm=Math.max(D,1);
+          let s;
+          if(p.tipo==='II')s=pv.eS+lag;
+          else if(p.tipo==='TT')s=pv.eF+lag-(Dm-1);
+          else if(p.tipo==='IT')s=pv.eS+lag-1-(Dm-1);
+          else s=(predMarco?pv.eS:pv.eF+1)+lag;
+          lim=Math.max(lim,s);
+        }
+        if(lim>-Infinity&&!fixo&&!soRollup){
+          if(a.inicioMin)lim=Math.max(lim,cal.ceil(a.inicioMin));
+          S0=lim;agendado=true;
+        }
+      }
+      if(S0==null)r={S:null,F:null,eS:null,eF:null,D};
+      else{
+        let F=agendado?S0+Math.max(D,1)-1:(a.fim?cal.floor(a.fim):S0+Math.max(D,1)-1);
+        if(D===0&&agendado)F=S0;
+        if(F<S0)F=S0;
+        r={S:S0,F,D,agendado,eS:a.inicioReal?cal.ceil(a.inicioReal):S0,eF:a.terminoReal?cal.floor(a.terminoReal):F};
+      }
+    }
+    val.set(id,r);estado.set(id,2);return r;
+  };
+  seq.forEach(a=>calc(a.id));
+  if(ciclo){const a=porId.get(ciclo);return {ok:false,erro:'Dependência circular nas predecessoras envolvendo "'+(a?a.nome:'?')+'". Revise os vínculos.'};}
+  // Grava datas calculadas nas sublinhas com predecessoras
+  seq.forEach(a=>{
+    const r=val.get(a.id),inf=info.get(a.id);
+    if(inf.resumo){a.resumo=true;return;}
+    if(a.resumo)delete a.resumo;
+    if(r&&r.agendado){a.inicio=cal.date(r.S);a.fim=cal.date(r.F);if(typeof a.duracao!=='number')a.duracao=r.D;}
+  });
+  // Consolida linhas macro (de baixo para cima)
+  const pctDe=a=>a.status==='Concluída'?100:Math.max(0,Math.min(100,+a.pct||0));
+  [...seq].reverse().forEach(a=>{
+    const inf=info.get(a.id);if(!inf.resumo)return;
+    const fs=inf.filhos.map(i=>porId.get(i));
+    const r=val.get(a.id);
+    a.inicio=r&&r.S!=null?cal.date(r.S):null;
+    a.fim=r&&r.F!=null?cal.date(r.F):null;
+    a.duracao=r?r.D:0;
+    let peso=0,soma=0;fs.forEach(c=>{const w=Math.max(1,_cronoDur(c,cal));peso+=w;soma+=pctDe(c)*w;});
+    a.pct=peso?Math.round(soma/peso):0;
+    const ir=fs.map(c=>c.inicioReal).filter(Boolean).sort();
+    a.inicioReal=ir[0]||null;
+    a.terminoReal=fs.length&&fs.every(c=>c.terminoReal)?fs.map(c=>c.terminoReal).sort().pop():null;
+    const st=fs.map(c=>c.status);
+    a.status=st.every(s=>s==='Concluída')?'Concluída':st.some(s=>s==='Atrasada')?'Atrasada':st.every(s=>s==='Pausada')?'Pausada':(st.some(s=>s==='Em andamento'||s==='Concluída')||a.inicioReal)?'Em andamento':'Planejada';
+    garantirBaseline(a);
+    const bi=fs.map(c=>c.baseline&&c.baseline.inicioOriginal).filter(Boolean).sort();
+    const bf=fs.map(c=>c.baseline&&c.baseline.fimOriginal).filter(Boolean).sort();
+    a.baseline.inicioOriginal=bi[0]||a.inicio;a.baseline.fimOriginal=bf.pop()||a.fim;
+  });
+  // Folga total / caminho crítico (passo de volta), só sublinhas
+  const folhas=seq.filter(a=>!info.get(a.id).resumo&&val.get(a.id)?.S!=null);
+  const fimProj=folhas.reduce((m,a)=>Math.max(m,val.get(a.id).eF),-Infinity);
+  const LF=new Map(folhas.map(a=>[a.id,fimProj]));
+  const arestas=[];
+  folhas.forEach(s=>{
+    const preds=[...(s.predecessoras||[])];
+    _cronoAncestrais(info,s.id).forEach(pid=>preds.push(...(porId.get(pid)?.predecessoras||[])));
+    preds.forEach(p=>{
+      const alvo=info.get(p.id)?.resumo?_cronoDescendentes(info,p.id).filter(x=>!info.get(x).resumo):[p.id];
+      alvo.forEach(pid=>{if(LF.has(pid))arestas.push({p:pid,s:s.id,tipo:p.tipo||'TI',lag:p.lag||0});});
+    });
+  });
+  const Dm=id=>Math.max(1,val.get(id).F-val.get(id).S+1);
+  for(let it=0,mud=true;mud&&it<folhas.length+2;it++){
+    mud=false;
+    arestas.forEach(e=>{
+      const LFs=LF.get(e.s),LSs=LFs-(Dm(e.s)-1),Dp=Dm(e.p);
+      const pMarco=_cronoDur(porId.get(e.p),cal)===0;
+      let b;
+      if(e.tipo==='II')b=LSs-e.lag+Dp-1;
+      else if(e.tipo==='TT')b=LFs-e.lag;
+      else if(e.tipo==='IT')b=LFs-e.lag+1+Dp-1;
+      else b=pMarco?LSs-e.lag:LSs-1-e.lag;
+      if(b<LF.get(e.p)){LF.set(e.p,b);mud=true;}
+    });
+  }
+  folhas.forEach(a=>{
+    const v=val.get(a.id),inf=info.get(a.id);
+    inf.folga=LF.get(a.id)-v.eF;
+    inf.critico=inf.folga<=0&&a.status!=='Concluída';
+  });
+  seq.forEach(a=>{const inf=info.get(a.id);if(inf.resumo)inf.critico=_cronoDescendentes(info,a.id).some(x=>info.get(x).critico);});
+  return {ok:true,T,val,cal};
+}
+
+function _cronoNormOrdem(lista,pjId){
+  const T=_cronoArvore(lista,pjId);
+  const grupos=new Map();
+  T.seq.forEach(a=>{const p=T.info.get(a.id).pai;if(!grupos.has(p))grupos.set(p,[]);grupos.get(p).push(a);});
+  grupos.forEach(g=>g.forEach((a,i)=>{a.ordem=i+1;}));
+}
+
+// Predecessoras: texto "3;5II+2d;7TT-1d" <-> [{id,tipo,lag}]
+function _cronoFmtPred(a,info){
+  return (a.predecessoras||[]).map(p=>{const n=info.get(p.id)?.num;if(!n)return'';return n+((p.tipo&&p.tipo!=='TI')?p.tipo:'')+(p.lag?(p.lag>0?'+':'')+p.lag+'d':'');}).filter(Boolean).join(';');
+}
+function _cronoParsePred(txt,pjId,selfId){
+  const T=_cronoArvore(S.atividades,pjId);
+  const porNum=new Map(T.seq.map(a=>[T.info.get(a.id).num,a]));
+  const out=[];
+  const map={FS:'TI',SS:'II',FF:'TT',SF:'IT'};
+  for(let tk of String(txt||'').split(/[;,]/)){
+    tk=tk.trim();if(!tk)continue;
+    const m=tk.replace(/\s+/g,'').toUpperCase().match(/^(\d+)(TI|II|TT|IT|FS|SS|FF|SF)?([+-]\d+)?(D|DIA|DIAS)?$/);
+    if(!m)return {ok:false,erro:'Predecessora inválida: "'+tk+'". Use o formato 3, 3TI+2d, 5II, 7TT-1d.'};
+    const alvo=porNum.get(parseInt(m[1]));
+    if(!alvo)return {ok:false,erro:'Predecessora "'+tk+'": não existe a linha Id '+m[1]+' neste projeto.'};
+    if(alvo.id===selfId)return {ok:false,erro:'Uma atividade não pode ser predecessora dela mesma.'};
+    if(selfId&&_cronoAncestrais(T.info,selfId).includes(alvo.id))return {ok:false,erro:'"'+alvo.nome+'" é a linha macro desta atividade e não pode ser predecessora dela.'};
+    if(selfId&&_cronoDescendentes(T.info,selfId).includes(alvo.id))return {ok:false,erro:'"'+alvo.nome+'" é sublinha desta atividade e não pode ser predecessora dela.'};
+    const tipo=map[m[2]]||m[2]||'TI';
+    if(out.some(p=>p.id===alvo.id))continue;
+    out.push({id:alvo.id,tipo,lag:m[3]?parseInt(m[3]):0});
+  }
+  return {ok:true,preds:out};
+}
+
+// ── Pipeline único de alteração do cronograma ──
+// Aplica a mudança numa cópia, reagenda, compara datas. Se alguma data planejada
+// já existente mudar, exige motivo + senha antes de gravar (lista de impactos).
+function _cronoAplicar(o){
+  const pjId=o.pjId;
+  const doPj=a=>String(a.projetoId)===String(pjId);
+  const antes=new Map(S.atividades.filter(doPj).map(a=>[a.id,{inicio:a.inicio,fim:a.fim,nome:a.nome}]));
+  const fimMax=l=>l.filter(a=>doPj(a)&&!a.resumo&&a.fim).map(a=>a.fim).sort().pop()||null;
+  const fimAntes=fimMax(S.atividades);
+  const lista=JSON.parse(JSON.stringify(S.atividades));
+  if(o.mutar(lista)===false)return false;
+  const r=_cronoAgendar(lista,pjId,false);
+  if(!r.ok){notif(r.erro,'er');if(o.aoCancelar)o.aoCancelar();return false;}
+  _cronoNormOrdem(lista,pjId);
+  lista.forEach(a=>{if(a._novo){delete a._novo;a.baseline={inicioOriginal:a.inicio||null,fimOriginal:a.fim||null,criadoEm:new Date().toISOString(),revisoes:[]};}});
+  const impactos=[];
+  lista.forEach(a=>{
+    if(!doPj(a)||a.resumo)return;
+    const b=antes.get(a.id);
+    if(!b||(!b.inicio&&!b.fim))return;
+    if(b.inicio===a.inicio&&b.fim===a.fim)return;
+    impactos.push({id:a.id,nome:a.nome,de:{inicio:b.inicio,fim:b.fim},para:{inicio:a.inicio,fim:a.fim},dias:(b.fim&&a.fim)?_isoDiff(b.fim,a.fim):0,origem:a.id===o.origemId});
+  });
+  const fimDepois=fimMax(lista);
+  const impactoProjeto=(fimAntes&&fimDepois)?_isoDiff(fimAntes,fimDepois):0;
+  const commit=reg=>{
+    if(reg){
+      const rid=Date.now();
+      impactos.forEach(im=>{
+        const a=lista.find(x=>x.id===im.id);if(!a)return;
+        garantirBaseline(a);
+        a.baseline.revisoes.push({de:im.de,para:im.para,motivo:reg.motivo,categoria:reg.categoria,usuario:S.currentUser||'Sistema',data:new Date().toISOString(),reprogId:rid,cascata:!im.origem,origemNome:o.origemNome||''});
+      });
+      if(!Array.isArray(S.reprogramacoes))S.reprogramacoes=[];
+      const u=(S.usuarios||[]).find(x=>x.user===S.currentUser);
+      S.reprogramacoes.push({id:rid,data:new Date().toISOString(),usuario:S.currentUser||'Sistema',usuarioNome:u?u.nome:(S.currentUser||'Sistema'),projetoId:parseInt(pjId),origemId:o.origemId||null,origemNome:o.origemNome||'',acao:o.descricao||'',categoria:reg.categoria,motivo:reg.motivo,impactoProjetoDias:impactoProjeto,fimProjetoAntes:fimAntes,fimProjetoDepois:fimDepois,impactos:impactos.map(({origem,...x})=>({...x,origem}))});
+    }
+    S.atividades=lista;
+    if(o.aoConcluir)o.aoConcluir(reg);
+  };
+  if(impactos.length&&!o.semMotivo){
+    const linhas=impactos.map(im=>`<tr><td style="padding:4px 6px;">${im.origem?'✏️':'↪️'} ${_escHtml(im.nome)}</td><td style="padding:4px 6px;white-space:nowrap;">${fd(im.de.inicio)} → ${fd(im.de.fim)}</td><td style="padding:4px 6px;white-space:nowrap;font-weight:700;">${fd(im.para.inicio)} → ${fd(im.para.fim)}</td><td style="padding:4px 6px;font-weight:700;color:${im.dias>0?'#f43f5e':im.dias<0?'#22c55e':'var(--t2)'}">${im.dias>0?'+':''}${im.dias}d</td></tr>`).join('');
+    const resumo=`<div style="font-size:12px;color:var(--t2);margin-bottom:8px;">${_escHtml(o.descricao||'Alteração')}${o.origemNome?' — <strong>'+_escHtml(o.origemNome)+'</strong>':''}. As datas planejadas abaixo serão alteradas (↪️ = empurrada em cascata pelas predecessoras):</div>
+      <div style="max-height:220px;overflow:auto;border:1px solid var(--b1);border-radius:7px;margin-bottom:8px;"><table style="width:100%;font-size:11px;border-collapse:collapse;"><thead><tr style="background:var(--bg3)"><th style="text-align:left;padding:4px 6px;">Atividade</th><th style="text-align:left;padding:4px 6px;">De</th><th style="text-align:left;padding:4px 6px;">Para</th><th style="text-align:left;padding:4px 6px;" title="Variação do término em dias corridos">Δ término</th></tr></thead><tbody>${linhas}</tbody></table></div>
+      <div style="font-size:12px;font-weight:700;margin-bottom:10px;color:${impactoProjeto>0?'#f43f5e':impactoProjeto<0?'#22c55e':'var(--t2)'}">📅 Impacto no término do projeto: ${impactoProjeto>0?'+':''}${impactoProjeto} dia(s)${fimDepois?' (novo término '+fd(fimDepois)+')':''}</div>`;
+    _reprogAbrir({titulo:'📅 Reprogramação de Cronograma',resumoHtml:resumo,categoriaSugerida:o.categoriaSugerida||(impactoProjeto<0?'Antecipação':''),onOk:commit,onCancel:o.aoCancelar});
+    return true;
+  }
+  commit(null);
+  return true;
+}
+function _escHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+// Caixa de reprogramação (motivo + categoria + senha admin)
+let _reprogPend=null;
+function _reprogAbrir(cfg){
+  _reprogPend=cfg;
+  document.getElementById('rpTit').textContent=cfg.titulo||'📅 Reprogramação';
+  document.getElementById('rpResumo').innerHTML=cfg.resumoHtml||'';
+  const sel=document.getElementById('rpCat');
+  sel.innerHTML='<option value="">Selecione...</option>'+CRONO_CATEGORIAS.map(c=>`<option ${c===cfg.categoriaSugerida?'selected':''}>${c}</option>`).join('');
+  document.getElementById('rpMotivo').value='';
+  document.getElementById('rpSenha').value='';
+  abrir('mReprog');
+  setTimeout(()=>document.getElementById('rpMotivo')?.focus(),50);
+}
+function _reprogCancelar(){
+  fechar('mReprog');
+  const p=_reprogPend;_reprogPend=null;
+  if(p&&p.onCancel)p.onCancel();
+}
+function _reprogConfirmar(){
+  const p=_reprogPend;if(!p){fechar('mReprog');return;}
+  const categoria=document.getElementById('rpCat').value;
+  const motivo=document.getElementById('rpMotivo').value.trim();
+  const senha=document.getElementById('rpSenha').value;
+  if(!categoria){notif('Selecione a categoria da reprogramação','er');return;}
+  if(motivo.length<5){notif('Informe o motivo (mínimo 5 caracteres)','er');return;}
+  if(senha!==(S.masterPass||CONFIG.SENHA_PADRAO)){notif('❌ Senha de administrador incorreta','er');return;}
+  _reprogPend=null;
+  fechar('mReprog');
+  p.onOk({categoria,motivo});
+}
+
+// ── Migração / consolidação na inicialização ──
+function _cronoMigrar(){
+  if(!Array.isArray(S.atividades))return;
+  let mud=false;
+  S.atividades.forEach((a,i)=>{if(a.ordem==null){a.ordem=i+1;mud=true;}});
+  if(!Array.isArray(S.reprogramacoes)){S.reprogramacoes=[];mud=true;}
+  [...new Set(S.atividades.map(a=>String(a.projetoId)))].forEach(pj=>{try{_cronoAgendar(S.atividades,pj,true);}catch(e){console.warn('crono rollup',e);}});
+  if(mud)save();
+}
+
+// ── Modal da atividade: campos de estrutura ──
+function _popAtPai(selId){
+  const el=document.getElementById('atPai');if(!el)return;
+  const pjId=document.getElementById('atPj').value;
+  const selfId=parseInt(document.getElementById('atId').value)||0;
+  if(!pjId){el.innerHTML='<option value="">— Nenhuma (linha macro) —</option>';return;}
+  const T=_cronoArvore(S.atividades,pjId);
+  const bloq=new Set(selfId?[selfId,..._cronoDescendentes(T.info,selfId)]:[]);
+  el.innerHTML='<option value="">— Nenhuma (esta é uma linha macro) —</option>'+T.seq.filter(a=>!bloq.has(a.id)).map(a=>{const inf=T.info.get(a.id);return`<option value="${a.id}">${'  '.repeat(inf.nivel)}${inf.num} · ${_escHtml(a.nome)}</option>`;}).join('');
+  el.value=selId?String(selId):'';
+}
+function _atCal(){return _cronoCal(document.getElementById('atPj')?.value||'');}
+function atIniChange(){
+  const ini=document.getElementById('atIni').value;const d=document.getElementById('atDur').value;
+  if(ini&&d!==''){const dur=parseInt(d)||0;document.getElementById('atFim').value=dur===0?ini:_atCal().fimPorDuracao(ini,dur);}
+  else if(ini&&document.getElementById('atFim').value)atFimChange();
+}
+function atFimChange(){
+  const ini=document.getElementById('atIni').value,fim=document.getElementById('atFim').value;
+  if(ini&&fim){if(fim<ini){document.getElementById('atFim').value=ini;}document.getElementById('atDur').value=Math.max(1,_atCal().dias(ini,document.getElementById('atFim').value));}
+}
+function atDurChange(){
+  const ini=document.getElementById('atIni').value;const d=document.getElementById('atDur').value;
+  if(ini&&d!==''){const dur=Math.max(0,parseInt(d)||0);document.getElementById('atFim').value=dur===0?ini:_atCal().fimPorDuracao(ini,dur);atDataChange();}
+}
+function _atModoResumo(ehResumo){
+  ['atIni','atFim','atDur','atPct','atIniReal','atFimReal','atSt'].forEach(x=>{const e=document.getElementById(x);if(e)e.disabled=ehResumo;});
+  const inf=document.getElementById('atResumoInfo');if(inf)inf.style.display=ehResumo?'block':'none';
+}
+
+// ── Ações de estrutura (recuar/avançar nível, mover, sublinha) ──
+function cronoNovaSub(paiId){
+  if(_bloquearSeVisualizador())return;
+  const p=S.atividades.find(x=>x.id===paiId);if(!p)return;
+  abrirAtiv(null,{projetoId:p.projetoId,parentId:p.id,inicio:p.inicio||''});
+}
+function _cronoEstrutura(id,desc,fn){
+  if(_bloquearSeVisualizador())return;
+  const a=S.atividades.find(x=>x.id===id);if(!a)return;
+  _cronoAplicar({pjId:a.projetoId,origemId:id,origemNome:a.nome,descricao:desc,mutar:lista=>{
+    const T=_cronoArvore(lista,a.projetoId);
+    return fn(lista,T,lista.find(x=>x.id===id));
+  },aoConcluir:()=>{save();renderAtiv();renderDash();log(desc+': '+a.nome,'🗂️');}});
+}
+function cronoRecuar(id){
+  _cronoEstrutura(id,'Recuo de nível (virou sublinha)',(lista,T,a)=>{
+    const inf=T.info.get(id);
+    const irmaos=T.seq.filter(x=>T.info.get(x.id).pai===inf.pai);
+    const i=irmaos.findIndex(x=>x.id===id);
+    if(i<=0){notif('Não há linha acima no mesmo nível para virar a linha macro','wn');return false;}
+    const novoPai=irmaos[i-1];
+    if(!T.info.get(novoPai.id).resumo&&!confirm('"'+novoPai.nome+'" passará a ser linha macro (resumo): suas datas, duração, % e status passarão a ser calculados pelas sublinhas. Continuar?'))return false;
+    a.parentId=novoPai.id;
+    a.ordem=1e6;
+  });
+}
+function cronoAvancar(id){
+  _cronoEstrutura(id,'Avanço de nível',(lista,T,a)=>{
+    const inf=T.info.get(id);
+    if(!inf.pai){notif('A atividade já está no nível principal','wn');return false;}
+    const pai=lista.find(x=>x.id===inf.pai);
+    a.parentId=pai.parentId||null;
+    a.ordem=(pai.ordem||0)+0.5;
+  });
+}
+function cronoMover(id,dir){
+  _cronoEstrutura(id,dir<0?'Linha movida para cima':'Linha movida para baixo',(lista,T,a)=>{
+    const inf=T.info.get(id);
+    const irmaos=T.seq.filter(x=>T.info.get(x.id).pai===inf.pai);
+    const i=irmaos.findIndex(x=>x.id===id),j=i+dir;
+    if(j<0||j>=irmaos.length)return false;
+    irmaos.forEach((x,k)=>{x.ordem=k+1;});
+    const b=irmaos[j];const t=a.ordem;a.ordem=b.ordem;b.ordem=t;
+  });
+}
+function cronoToggle(id){
+  if(_cronoRecolhidos.has(id))_cronoRecolhidos.delete(id);else _cronoRecolhidos.add(id);
+  try{localStorage.setItem(SK+'_cronoRecolhidos',JSON.stringify([..._cronoRecolhidos]));}catch(e){}
+  renderAtiv();
+}
+function cronoExpandirTudo(abrirTudo){
+  if(abrirTudo)_cronoRecolhidos.clear();
+  else S.atividades.filter(a=>a.resumo).forEach(a=>_cronoRecolhidos.add(a.id));
+  try{localStorage.setItem(SK+'_cronoRecolhidos',JSON.stringify([..._cronoRecolhidos]));}catch(e){}
+  renderAtiv();
+}
+
+// ── Nova linha de base do projeto ──
+function cronoNovaLinhaBase(){
+  if(_bloquearSeVisualizador())return;
+  const pjId=document.getElementById('filAtPj')?.value;
+  if(!pjId){notif('Selecione um projeto no filtro para redefinir a linha de base','wn');return;}
+  const p=S.projetos.find(x=>x.id==pjId);
+  const ativs=S.atividades.filter(a=>String(a.projetoId)===String(pjId)&&!a.resumo&&a.inicio);
+  if(!ativs.length){notif('Projeto sem atividades com datas','wn');return;}
+  _reprogAbrir({titulo:'📐 Nova Linha de Base',resumoHtml:`<div style="font-size:12px;color:var(--t2);margin-bottom:10px;">As datas planejadas atuais das <strong>${ativs.length}</strong> atividade(s) de <strong>${_escHtml(p?p.nome:'')}</strong> passarão a ser a nova linha de base. A linha de base anterior fica guardada no histórico de cada atividade e no relatório de reprogramações.</div>`,categoriaSugerida:'Mudança de Escopo',onOk:reg=>{
+    const rid=Date.now();
+    const impactos=[];
+    ativs.forEach(a=>{
+      garantirBaseline(a);
+      const de={inicio:a.baseline.inicioOriginal,fim:a.baseline.fimOriginal};
+      if(!Array.isArray(a.baseline.anteriores))a.baseline.anteriores=[];
+      a.baseline.anteriores.push({...de,ate:new Date().toISOString(),motivo:reg.motivo});
+      a.baseline.inicioOriginal=a.inicio;a.baseline.fimOriginal=a.fim;
+      impactos.push({id:a.id,nome:a.nome,de,para:{inicio:a.inicio,fim:a.fim},dias:(de.fim&&a.fim)?_isoDiff(de.fim,a.fim):0,origem:false});
+    });
+    _cronoAgendar(S.atividades,pjId,true);
+    const u=(S.usuarios||[]).find(x=>x.user===S.currentUser);
+    if(!Array.isArray(S.reprogramacoes))S.reprogramacoes=[];
+    S.reprogramacoes.push({id:rid,data:new Date().toISOString(),usuario:S.currentUser||'Sistema',usuarioNome:u?u.nome:(S.currentUser||'Sistema'),projetoId:parseInt(pjId),origemId:null,origemNome:'',acao:'Nova linha de base',tipo:'linha-base',categoria:reg.categoria,motivo:reg.motivo,impactoProjetoDias:0,impactos});
+    save();renderAtiv();log('Nova linha de base do projeto '+(p?p.nome:'')+' — '+reg.motivo,'📐');notif('📐 Nova linha de base gravada');
+  }});
+}
+
+// ── Feriados do projeto ──
+function _pascoa(ano){const a=ano%19,b=Math.floor(ano/100),c=ano%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),mes=Math.floor((h+l-7*m+114)/31),dia=((h+l-7*m+114)%31)+1;return ano+'-'+String(mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');}
+function _feriadosNacionais(ano){
+  const p=_pascoa(ano);
+  return [[ano+'-01-01','Confraternização Universal'],[_isoAdd(p,-48),'Carnaval (facultativo)'],[_isoAdd(p,-47),'Carnaval (facultativo)'],[_isoAdd(p,-2),'Sexta-feira Santa'],[ano+'-04-21','Tiradentes'],[ano+'-05-01','Dia do Trabalho'],[_isoAdd(p,60),'Corpus Christi (facultativo)'],[ano+'-09-07','Independência'],[ano+'-10-12','Nossa Senhora Aparecida'],[ano+'-11-02','Finados'],[ano+'-11-15','Proclamação da República'],[ano+'-11-20','Consciência Negra'],[ano+'-12-25','Natal']].map(([data,nome])=>({data,nome}));
+}
+let _ferEdit=[];
+function abrirFeriados(){
+  if(_bloquearSeVisualizador())return;
+  const el=document.getElementById('ferPj');
+  el.innerHTML=_projetosVisiveis().map(p=>`<option value="${p.id}">${_escHtml(p.nome)}</option>`).join('');
+  const fp=document.getElementById('filAtPj')?.value;
+  if(fp)el.value=fp;
+  if(!el.value){notif('Cadastre um projeto primeiro','wn');return;}
+  document.getElementById('ferAno').value=new Date().getFullYear();
+  ferCarregar();
+  abrir('mFeriados');
+}
+function ferCarregar(){
+  const p=S.projetos.find(x=>x.id==document.getElementById('ferPj').value);
+  _ferEdit=JSON.parse(JSON.stringify((p&&p.feriados)||[]));
+  ferRender();
+}
+function ferRender(){
+  _ferEdit.sort((a,b)=>a.data<b.data?-1:1);
+  document.getElementById('ferLista').innerHTML=_ferEdit.length?_ferEdit.map((f,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid var(--b1);font-size:12px;"><span style="font-family:'JetBrains Mono';min-width:110px;">${_cronoFmtData(f.data)}</span><span style="flex:1;">${_escHtml(f.nome||'')}</span><button class="btn xs" style="color:var(--rd)" onclick="_ferEdit.splice(${i},1);ferRender()">🗑️</button></div>`).join(''):'<div style="padding:10px;font-size:11px;color:var(--t3);">Nenhum feriado cadastrado — o calendário considera Seg a Sex.</div>';
+}
+function ferAdd(){
+  const d=document.getElementById('ferData').value,n=document.getElementById('ferNome').value.trim();
+  if(!d){notif('Informe a data','er');return;}
+  if(!_ferEdit.some(f=>f.data===d))_ferEdit.push({data:d,nome:n||'Feriado'});
+  document.getElementById('ferData').value='';document.getElementById('ferNome').value='';
+  ferRender();
+}
+function ferImportar(){
+  const ano=parseInt(document.getElementById('ferAno').value)||new Date().getFullYear();
+  let n=0;_feriadosNacionais(ano).forEach(f=>{if(!_ferEdit.some(x=>x.data===f.data)){_ferEdit.push(f);n++;}});
+  ferRender();notif(n+' feriado(s) nacional(is) de '+ano+' adicionado(s)');
+}
+function ferSalvar(){
+  const pjId=document.getElementById('ferPj').value;
+  const p=S.projetos.find(x=>x.id==pjId);if(!p)return;
+  const antigos=p.feriados;
+  p.feriados=JSON.parse(JSON.stringify(_ferEdit));
+  _cronoAplicar({pjId,descricao:'Alteração do calendário de feriados',origemNome:p.nome,categoriaSugerida:'Erro de Planejamento',mutar:()=>{},
+    aoCancelar:()=>{p.feriados=antigos;},
+    aoConcluir:()=>{fechar('mFeriados');save();renderAtiv();log('Feriados do projeto '+p.nome+' atualizados ('+p.feriados.length+')','📅');notif('📅 Calendário atualizado');}});
+}
+
+// ── Relatório de reprogramações / impactos ──
+function _cronoListaReprog(pjId){
+  const idsPerm=_idsProjetosVisiveis();
+  const ok=pj=>(!idsPerm||idsPerm.includes(String(pj)))&&(!pjId||String(pj)===String(pjId));
+  const out=(S.reprogramacoes||[]).filter(r=>ok(r.projetoId)).map(r=>({...r}));
+  // Revisões antigas (antes do cronograma) registradas só na atividade
+  S.atividades.forEach(a=>{
+    if(!ok(a.projetoId))return;
+    (a.baseline?.revisoes||[]).forEach(rv=>{
+      if(rv.reprogId)return;
+      out.push({id:'L'+a.id+rv.data,data:rv.data,usuario:rv.usuario,usuarioNome:rv.usuario,projetoId:a.projetoId,origemNome:a.nome,acao:'Alteração de datas',categoria:rv.categoria||'—',motivo:rv.motivo,impactoProjetoDias:null,impactos:[{nome:a.nome,de:rv.de,para:rv.para,dias:(rv.de?.fim&&rv.para?.fim)?_isoDiff(rv.de.fim,rv.para.fim):0,origem:true}]});
+    });
+  });
+  return out.sort((a,b)=>a.data<b.data?1:-1);
+}
+function abrirReprogramacoes(){
+  const el=document.getElementById('rlPj');
+  el.innerHTML='<option value="">Todos projetos</option>'+_projetosVisiveis().map(p=>`<option value="${p.id}">${_escHtml(p.nome)}</option>`).join('');
+  el.value=document.getElementById('filAtPj')?.value||'';
+  renderReprogramacoes();
+  abrir('mReprogList');
+}
+function renderReprogramacoes(){
+  const pjId=document.getElementById('rlPj').value;
+  const L=_cronoListaReprog(pjId);
+  const porCat={};L.forEach(r=>{const k=r.categoria||'—';porCat[k]=porCat[k]||{n:0,d:0};porCat[k].n++;porCat[k].d+=Math.max(0,r.impactoProjetoDias||0);});
+  const totDias=L.reduce((s,r)=>s+(r.impactoProjetoDias||0),0);
+  document.getElementById('rlResumo').innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+    <div class="badge bb" style="font-size:11px;padding:4px 8px;">${L.length} reprogramação(ões)</div>
+    <div class="badge ${totDias>0?'br':'bg'}" style="font-size:11px;padding:4px 8px;">Impacto acumulado no término: ${totDias>0?'+':''}${totDias} dia(s)</div>
+    ${Object.entries(porCat).map(([k,v])=>`<div class="badge" style="font-size:10px;padding:4px 8px;background:var(--bg3);">${_escHtml(k)}: ${v.n}${v.d?' · +'+v.d+'d':''}</div>`).join('')}</div>`;
+  document.getElementById('rlTabela').innerHTML=L.length?L.map(r=>{
+    const pj=S.projetos.find(p=>p.id==r.projetoId);
+    const imp=(r.impactos||[]).map(i=>`<div style="font-size:10px;">${i.origem?'✏️':'↪️'} ${_escHtml(i.nome)}: ${fd(i.de?.fim)} → <strong>${fd(i.para?.fim)}</strong> <span style="color:${i.dias>0?'#f43f5e':i.dias<0?'#22c55e':'var(--t3)'}">(${i.dias>0?'+':''}${i.dias}d)</span></div>`).join('');
+    const ip=r.impactoProjetoDias;
+    return`<tr><td style="font-size:10px;white-space:nowrap;">${new Date(r.data).toLocaleString('pt-BR')}</td><td style="font-size:10px;">${_escHtml(r.usuarioNome||r.usuario||'')}</td><td style="font-size:10px;">${_escHtml(pj?pj.nome:'')}<div style="color:var(--t3)">${_escHtml(r.acao||'')}${r.origemNome?' — '+_escHtml(r.origemNome):''}</div></td><td style="font-size:10px;">${_escHtml(r.categoria||'—')}</td><td style="font-size:10px;max-width:220px;">${_escHtml(r.motivo||'')}</td><td>${imp}</td><td style="font-weight:700;font-size:11px;color:${ip>0?'#f43f5e':ip<0?'#22c55e':'var(--t3)'}">${ip==null?'—':(ip>0?'+':'')+ip+'d'}</td></tr>`;
+  }).join(''):'<tr><td colspan="7" class="empty" style="padding:18px">Nenhuma reprogramação registrada</td></tr>';
+}
+function imprimirReprogramacoes(){
+  const pjId=document.getElementById('rlPj').value;
+  const L=_cronoListaReprog(pjId);
+  const pj=S.projetos.find(p=>p.id==pjId);
+  const totDias=L.reduce((s,r)=>s+(r.impactoProjetoDias||0),0);
+  const linhas=L.map(r=>{
+    const p=S.projetos.find(x=>x.id==r.projetoId);
+    const imp=(r.impactos||[]).map(i=>`<div>${i.origem?'✏️':'↪️'} ${_escHtml(i.nome)}: ${fd(i.de?.inicio)}–${fd(i.de?.fim)} → <b>${fd(i.para?.inicio)}–${fd(i.para?.fim)}</b> (${i.dias>0?'+':''}${i.dias}d)</div>`).join('');
+    const ip=r.impactoProjetoDias;
+    return`<tr><td>${new Date(r.data).toLocaleString('pt-BR')}</td><td>${_escHtml(r.usuarioNome||r.usuario||'')}</td><td>${_escHtml(p?p.nome:'')}<br><span style="color:#64748b">${_escHtml(r.acao||'')}${r.origemNome?' — '+_escHtml(r.origemNome):''}</span></td><td>${_escHtml(r.categoria||'—')}</td><td>${_escHtml(r.motivo||'')}</td><td>${imp}</td><td style="font-weight:700;color:${ip>0?'#b91c1c':ip<0?'#15803d':'#334155'}">${ip==null?'—':(ip>0?'+':'')+ip+'d'}</td></tr>`;
+  }).join('');
+  const w=window.open('','_blank');
+  if(!w){notif('Popup bloqueado. Permita popups para imprimir.','wn');return;}
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Reprogramações e Impactos</title><style>
+    @page{size:A4 landscape;margin:10mm}body{font-family:Arial,sans-serif;color:#0f172a;background:#fff;margin:0;padding:12px;font-size:10px}
+    h1{font-size:16px;margin:0 0 4px;color:#1d4ed8}.meta{color:#64748b;margin-bottom:10px}
+    table{width:100%;border-collapse:collapse}th{background:#1e293b;color:#fff;text-align:left;padding:5px;font-size:9px;text-transform:uppercase}
+    td{border-bottom:1px solid #e2e8f0;padding:5px;vertical-align:top}tr:nth-child(even) td{background:#f8fafc}
+    .no-print{margin-bottom:10px}.print-btn{padding:8px 18px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700}
+    @media print{.no-print{display:none}}</style></head><body>
+    <div class="no-print"><button class="print-btn" onclick="window.print()">🖨️ Imprimir</button></div>
+    <h1>📅 Reprogramações e Impactos no Cronograma</h1>
+    <div class="meta">Projeto: <b>${_escHtml(pj?pj.nome:'Todos os projetos')}</b> · Emitido em ${new Date().toLocaleString('pt-BR')} · ${L.length} registro(s) · Impacto acumulado no término: <b>${totDias>0?'+':''}${totDias} dia(s)</b></div>
+    <table><thead><tr><th>Data</th><th>Usuário</th><th>Projeto / Origem</th><th>Categoria</th><th>Motivo</th><th>Atividades afetadas (✏️ alterada · ↪️ cascata)</th><th>Impacto término</th></tr></thead><tbody>${linhas||'<tr><td colspan="7">Nenhuma reprogramação registrada</td></tr>'}</tbody></table>
+    <script>setTimeout(function(){window.print();},400);<\/script></body></html>`);
+  w.document.close();
+}
+
+// ── Cores das barras (mesma lógica do Gantt original) ──
+function _cronoCorBarra(a,pal){
+  const cols={'Planejada':pal.planejada,'Em andamento':pal.andamento,'Concluída':pal.concluida,'Atrasada':pal.atrasada,'Pausada':pal.pausada};
+  let c=cols[a.status]||pal.planejada;
+  if(a.fim&&a.status!=='Concluída'&&a.status!=='Pausada'){
+    const hoje=new Date();hoje.setHours(0,0,0,0);
+    const diff=Math.floor((hoje-new Date(a.fim+'T00:00:00'))/86400000);
+    const ate=Math.floor((hoje-new Date(a.inicio+'T00:00:00'))/86400000);
+    if(diff>0)c=diff<=7?'#eab308':diff<=15?'#f97316':'#dc2626';
+    else if(ate<0)c='#6b7280';
+  }
+  return c;
+}
+const CRONO_PAL_TELA={planejada:'var(--ac)',andamento:'var(--gn)',concluida:'var(--t3)',atrasada:'var(--rd)',pausada:'var(--yl)',texto:'var(--t1)',texto2:'var(--t3)',grade:'var(--b1)',fds:'rgba(148,163,184,.08)',resumo:'var(--t1)',seta:'#3b82f6',hoje:'var(--ac)',critico:'#ef4444',fundoHdr:'var(--bg3)'};
+const CRONO_PAL_PRINT={planejada:'#60a5fa',andamento:'#22c55e',concluida:'#94a3b8',atrasada:'#ef4444',pausada:'#eab308',texto:'#0f172a',texto2:'#475569',grade:'#cbd5e1',fds:'#f1f5f9',resumo:'#1f2937',seta:'#2563eb',hoje:'#16a34a',critico:'#dc2626',fundoHdr:'#f8fafc'};
+
+// Desenha o gráfico (SVG) para as linhas informadas — usado na tela e na impressão
+// linhas: [{tipo:'pj',nome} | {tipo:'at',a,inf}]
+function _cronoSvg(linhas,o){
+  const pal=o.pal,rowH=o.rowH,hdrH=o.hdrH,mn=o.mn,days=o.days,dayW=o.dayW;
+  const W=Math.max(1,Math.round(days*dayW)),H=hdrH+linhas.length*rowH;
+  const x=iso=>_isoDiff(mn,iso)*dayW;
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;font-family:Arial,sans-serif;">`;
+  s+=`<defs><marker id="${o.idp}ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" style="fill:${pal.seta}"/></marker>`;
+  [['g','#22c55e','#16a34a'],['b','#0ea5e9','#0284c7'],['r','#f43f5e','#be123c']].forEach(([k,c1,c2])=>{s+=`<pattern id="${o.idp}p${k}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="${c1}"/><rect x="3" width="3" height="6" fill="${c2}"/></pattern>`;});
+  s+=`</defs>`;
+  // Fins de semana / feriados + cabeçalho
+  const ferSet=o.cal?o.cal.ferSet:new Set();
+  s+=`<rect x="0" y="0" width="${W}" height="${hdrH}" style="fill:${pal.fundoHdr}"/>`;
+  const semanal=days<=200;
+  for(let i=0;i<days;i++){
+    const iso=_isoAdd(mn,i),dw=_isoDow(iso);
+    if(dw===0||dw===6||ferSet.has(iso))s+=`<rect x="${i*dayW}" y="${hdrH}" width="${dayW}" height="${H-hdrH}" style="fill:${pal.fds}"/>`;
+    const [y,m,d]=iso.split('-');
+    const marca=semanal?dw===0:d==='01';
+    if(marca||i===0){
+      s+=`<line x1="${i*dayW}" y1="0" x2="${i*dayW}" y2="${H}" style="stroke:${pal.grade};stroke-width:.6"/>`;
+      const lbl=semanal?`${d}/${CRONO_MESES[+m-1]}/${y.slice(2)}`:`${CRONO_MESES[+m-1]}/${y.slice(2)}`;
+      s+=`<text x="${i*dayW+3}" y="${hdrH/2-3}" style="fill:${pal.texto2};font-size:9px;">${lbl}</text>`;
+    }
+    if(dayW>=9)s+=`<text x="${i*dayW+dayW/2}" y="${hdrH-4}" text-anchor="middle" style="fill:${pal.texto2};font-size:${Math.min(9,dayW*.7)}px;">${dayW>=18?d:'DSTQQSS'[dw]}</text>`;
+  }
+  s+=`<line x1="0" y1="${hdrH-.5}" x2="${W}" y2="${hdrH-.5}" style="stroke:${pal.grade};stroke-width:1"/>`;
+  // Hoje
+  const hojeIso=new Date().toISOString().slice(0,10);
+  const dh=_isoDiff(mn,hojeIso);
+  if(dh>=0&&dh<days)s+=`<line x1="${dh*dayW+dayW/2}" y1="${hdrH}" x2="${dh*dayW+dayW/2}" y2="${H}" style="stroke:${pal.hoje};stroke-width:1;stroke-dasharray:3,2;opacity:.8"/>`;
+  const posY=new Map();
+  linhas.forEach((l,i)=>{
+    const y0=hdrH+i*rowH;
+    s+=`<line x1="0" y1="${y0+rowH-.5}" x2="${W}" y2="${y0+rowH-.5}" style="stroke:${pal.grade};stroke-width:.4;opacity:.6"/>`;
+    if(l.tipo!=='at'||!l.a.inicio||!l.a.fim)return;
+    const a=l.a,inf=l.inf;posY.set(a.id,{y0,a,inf});
+    const x1=x(a.inicio),x2=x(a.fim)+dayW,mid=y0+rowH/2;
+    const tt=t=>`<title>${_escHtml(t)}</title>`;
+    // Linha de base
+    if(o.baseline&&a.baseline&&a.baseline.inicioOriginal&&a.baseline.fimOriginal){
+      const v=calcularVariacaoBaseline(a);
+      const bx1=x(a.baseline.inicioOriginal),bx2=x(a.baseline.fimOriginal)+dayW;
+      s+=`<rect x="${bx1}" y="${mid+rowH*.18}" width="${Math.max(3,bx2-bx1)}" height="${Math.max(3,rowH*.13)}" rx="1.5" style="fill:${v.corBaseline};stroke:${v.corBaseline};stroke-dasharray:2,1">${tt('Linha de base: '+fd(a.baseline.inicioOriginal)+' → '+fd(a.baseline.fimOriginal)+' | '+v.label)}</rect>`;
+    }
+    const titulo=a.nome+' | '+fd(a.inicio)+' → '+fd(a.fim)+' | '+_cronoFmtDur(a.duracao??0)+' | '+(a.pct||0)+'%'+(inf.critico?' | CRÍTICA':'')+(inf.folga!=null&&!inf.resumo?' | folga '+inf.folga+'d':'');
+    if(inf.resumo){
+      const yb=mid-rowH*.22;
+      s+=`<g>${tt(titulo)}<rect x="${x1}" y="${yb}" width="${Math.max(3,x2-x1)}" height="${rowH*.16}" style="fill:${pal.resumo}"/>`
+        +`<path d="M${x1},${yb} h4 v${rowH*.34} z" style="fill:${pal.resumo}"/><path d="M${x2},${yb} h-4 v${rowH*.34} z" style="fill:${pal.resumo}"/>`
+        +(a.pct?`<rect x="${x1}" y="${yb+rowH*.04}" width="${(x2-x1)*a.pct/100}" height="${rowH*.08}" style="fill:#22c55e"/>`:'')+`</g>`;
+    } else if((a.duracao??1)===0){
+      const cx=x1+dayW/2,r=Math.min(7,rowH*.28);
+      s+=`<path d="M${cx},${mid-r-2} l${r},${r} l-${r},${r} l-${r},-${r} z" style="fill:${_cronoCorBarra(a,pal)};stroke:${inf.critico?pal.critico:pal.resumo};stroke-width:1">${tt(titulo)}</path>`;
+      if(o.rotulos)s+=`<text x="${cx+r+3}" y="${mid+2}" style="fill:${pal.texto2};font-size:8px;">${fd(a.inicio).slice(0,5)}</text>`;
+    } else {
+      const cor=_cronoCorBarra(a,pal),yb=mid-rowH*.3,hb=rowH*.38;
+      s+=`<g>${tt(titulo)}<rect x="${x1}" y="${yb}" width="${Math.max(3,x2-x1)}" height="${hb}" rx="2" style="fill:${cor};opacity:.92;${inf.critico?'stroke:'+pal.critico+';stroke-width:1.6':''}"/>`
+        +(a.pct?`<rect x="${x1}" y="${yb+hb*.35}" width="${(x2-x1)*Math.min(100,a.pct)/100}" height="${hb*.3}" style="fill:rgba(0,0,0,.45)"/>`:'')+`</g>`;
+      if(o.rotulos&&a.pct)s+=`<text x="${x2+3}" y="${yb+hb-2}" style="fill:${pal.texto2};font-size:8px;">${a.pct}%</text>`;
+    }
+    // Execução real
+    if(o.real&&a.inicioReal&&!inf.resumo){
+      const ex=calcularExcedenteReal(a);
+      const k=ex&&ex.ehExcedente?'r':a.terminoReal?'g':'b';
+      const rf=a.terminoReal||hojeIso;
+      const rx1=x(a.inicioReal),rx2=x(rf)+dayW;
+      s+=`<rect x="${rx1}" y="${y0+rowH-Math.max(4,rowH*.17)-1}" width="${Math.max(3,rx2-rx1)}" height="${Math.max(4,rowH*.17)}" rx="1.5" fill="url(#${o.idp}p${k})"><title>Execução real: ${fd(a.inicioReal)} → ${a.terminoReal?fd(a.terminoReal):'em curso'}${ex&&ex.ehExcedente?' — '+ex.excedente+'d excedente':''}</title></rect>`;
+    }
+  });
+  // Setas de vínculo (predecessoras)
+  posY.forEach((sv)=>{
+    (sv.a.predecessoras||[]).forEach(p=>{
+      const pv=posY.get(p.id);if(!pv)return;
+      const ys=sv.y0+rowH/2,yp=pv.y0+rowH/2;
+      const ps=x(pv.a.inicio),pf=x(pv.a.fim)+dayW,ss=x(sv.a.inicio),sf=x(sv.a.fim)+dayW;
+      let d;
+      const t=p.tipo||'TI';
+      if(t==='II')d=`M${ps},${yp} H${Math.min(ps,ss)-6} V${ys} H${ss}`;
+      else if(t==='TT')d=`M${pf},${yp} H${Math.max(pf,sf)+6} V${ys} H${sf}`;
+      else if(t==='IT')d=`M${ps},${yp} H${ps-6} V${ys} H${sf}`;
+      else{
+        const ox=((pv.a.duracao??1)===0)?ps+dayW/2+6:pf;
+        d=ss>=ox+6?`M${ox},${yp} H${ox+5} V${ys} H${ss}`:`M${ox},${yp} H${ox+5} V${(ys>yp?pv.y0+rowH:pv.y0)} H${ss-6} V${ys} H${ss}`;
+      }
+      const crit=sv.inf.critico&&pv.inf.critico;
+      s+=`<path d="${d}" style="fill:none;stroke:${crit?pal.critico:pal.seta};stroke-width:${crit?1.4:1}" marker-end="url(#${o.idp}ar)"/>`;
+    });
+  });
+  s+=`</svg>`;
+  return {svg:s,W,H};
+}
+
+// Linhas visíveis (árvore + recolhimento + filtros) e contexto (Id, nível...)
+function _cronoLinhas(list,{recolher=true,cabecalhos=true}={}){
+  const ids=new Set(list.map(a=>a.id));
+  const pjs=[...new Set(list.map(a=>String(a.projetoId)))];
+  const ordemPj=S.projetos.map(p=>String(p.id));
+  pjs.sort((a,b)=>ordemPj.indexOf(a)-ordemPj.indexOf(b));
+  const out=[];const ctx=new Map();
+  pjs.forEach(pj=>{
+    const r=_cronoAgendar(S.atividades,pj,true);
+    if(!r.ok)return;
+    const {seq,info}=r.T;
+    if(cabecalhos&&pjs.length>1){const p=S.projetos.find(x=>String(x.id)===pj);out.push({tipo:'pj',nome:p?p.nome:'Projeto',pjId:pj});}
+    seq.forEach(a=>{
+      const inf=info.get(a.id);ctx.set(a.id,{...inf,pjId:pj});
+      if(!ids.has(a.id))return;
+      if(recolher&&_cronoAncestrais(info,a.id).some(x=>_cronoRecolhidos.has(x)))return;
+      out.push({tipo:'at',a,inf:{...inf,fmtPred:_cronoFmtPred(a,info)}});
+    });
+  });
+  _cronoCtx=ctx;
+  return out;
+}
+
+// Impressão do cronograma no estilo MS Project (tabela + Gantt, A4/A3 paisagem)
+function imprimirCronograma(){
+  const fp=document.getElementById('filAtPj')?.value||'';
+  const papel=document.getElementById('prCrPapel')?.value||'A4';
+  const mostrarBase=document.getElementById('prCrBase')?.checked!==false;
+  const mostrarReal=document.getElementById('prCrReal')?.checked!==false;
+  fechar('mPrintAtiv');
+  let pjs=_projetosVisiveis().filter(p=>!fp||String(p.id)===String(fp)).map(p=>p.id);
+  pjs=pjs.filter(id=>S.atividades.some(a=>String(a.projetoId)===String(id)));
+  if(!pjs.length){notif('Nenhuma atividade para imprimir','wn');return;}
+  const larg=papel==='A3'?1560:1080,altPag=papel==='A3'?1040:700;
+  const colW=[30,250,58,82,82,74,34],tabW=colW.reduce((a,b)=>a+b,0);
+  const rowH=20,hdrH=32,porPag=Math.floor((altPag-hdrH-130)/rowH);
+  const hojeTxt=_cronoFmtData(new Date().toISOString().slice(0,10));
+  let paginas=[];
+  pjs.forEach(pj=>{
+    const p=S.projetos.find(x=>x.id==pj);
+    const linhas=_cronoLinhas(S.atividades.filter(a=>String(a.projetoId)===String(pj)),{recolher:false,cabecalhos:false});
+    const r=_cronoAgendar(S.atividades,pj,true);
+    const datas=[];linhas.forEach(l=>{const a=l.a;[a.inicio,a.fim,mostrarBase&&a.baseline?.inicioOriginal,mostrarBase&&a.baseline?.fimOriginal,mostrarReal&&a.inicioReal,mostrarReal&&a.terminoReal].forEach(d=>{if(d)datas.push(d);});});
+    if(!datas.length)return;
+    datas.sort();
+    let mn=_isoAdd(datas[0],-1),mx=_isoAdd(datas[datas.length-1],3);
+    while(_isoDow(mn)!==0)mn=_isoAdd(mn,-1);
+    const days=_isoDiff(mn,mx)+1;
+    const gW=larg-tabW,dayW=gW/days;
+    for(let i=0;i<linhas.length;i+=porPag){
+      const fatia=linhas.slice(i,i+porPag);
+      const g=_cronoSvg(fatia,{pal:CRONO_PAL_PRINT,rowH,hdrH,mn,days,dayW,cal:r.cal,baseline:mostrarBase,real:mostrarReal,rotulos:true,idp:'pg'+paginas.length});
+      const xs=[0];colW.forEach(w=>xs.push(xs[xs.length-1]+w));
+      const H=g.H;
+      let t=`<svg xmlns="http://www.w3.org/2000/svg" width="${tabW}" height="${H}" style="display:block;font-family:Arial,sans-serif;"><rect x="0" y="0" width="${tabW}" height="${hdrH}" fill="#f8fafc"/>`;
+      ['Id','Nome da Tarefa','Duração','Início','Término','Predec.','%'].forEach((h,k)=>{t+=`<text x="${xs[k]+4}" y="${hdrH/2+4}" style="font-size:10px;font-weight:700;fill:#0f172a">${h}</text>`;});
+      fatia.forEach((l,j)=>{
+        const a=l.a,inf=l.inf,y=hdrH+j*rowH,yt=y+rowH/2+4;
+        const b=inf.resumo?'font-weight:700;':'';
+        const cor=inf.critico&&!inf.resumo?'#b91c1c':'#0f172a';
+        const nome=(' '.repeat(inf.nivel*3))+((a.duracao??1)===0&&!inf.resumo?'◆ ':'')+a.nome;
+        const nomeC=nome.length>44?nome.slice(0,43)+'…':nome;
+        t+=`<text x="${xs[0]+4}" y="${yt}" style="font-size:9.5px;fill:#475569">${inf.num}</text>`
+          +`<text x="${xs[1]+4}" y="${yt}" style="font-size:9.5px;fill:${cor};${b}">${_escHtml(nomeC)}</text>`
+          +`<text x="${xs[2]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${_cronoFmtDur(a.duracao??0)}</text>`
+          +`<text x="${xs[3]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${_cronoFmtData(a.inicio)}</text>`
+          +`<text x="${xs[4]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${_cronoFmtData(a.fim)}</text>`
+          +`<text x="${xs[5]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a">${_escHtml(inf.fmtPred.length>12?inf.fmtPred.slice(0,11)+'…':inf.fmtPred)}</text>`
+          +`<text x="${xs[6]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a">${a.pct||0}%</text>`
+          +`<line x1="0" y1="${y+rowH-.5}" x2="${tabW}" y2="${y+rowH-.5}" stroke="#e2e8f0" stroke-width=".6"/>`;
+      });
+      xs.slice(1,-1).forEach(xx=>{t+=`<line x1="${xx}" y1="0" x2="${xx}" y2="${H}" stroke="#cbd5e1" stroke-width=".6"/>`;});
+      t+=`<line x1="0" y1="${hdrH-.5}" x2="${tabW}" y2="${hdrH-.5}" stroke="#94a3b8"/></svg>`;
+      paginas.push({pj:p,html:`<div class="tab">${t}</div><div class="gan">${g.svg}</div>`});
+    }
+  });
+  const legenda=`<table class="leg"><tr><td class="pj" rowspan="3"><b>Projeto:</b> {PJ}<br><b>Data:</b> ${hojeTxt}</td>
+    <td><span class="sw" style="background:#60a5fa"></span>Tarefa</td><td><span class="sw" style="background:#1f2937;height:5px"></span>Resumo (linha macro)</td><td><span class="dm">◆</span>Marco</td><td><span class="sw" style="background:#fff;border:1.6px solid #dc2626"></span>Caminho crítico</td><td><span class="ln"></span>Vínculo</td></tr>
+    <tr><td><span class="sw" style="background:#22c55e"></span>Em andamento</td><td><span class="sw" style="background:#eab308"></span>Atraso ≤7d</td><td><span class="sw" style="background:#f97316"></span>Atraso ≤15d</td><td><span class="sw" style="background:#dc2626"></span>Atraso &gt;15d</td><td><span class="sw" style="background:#6b7280"></span>Não iniciada</td></tr>
+    <tr><td><span class="sw thin" style="background:rgba(148,163,184,.6)"></span>Base no prazo</td><td><span class="sw thin" style="background:rgba(34,197,94,.7)"></span>Base antecipada</td><td><span class="sw thin" style="background:rgba(244,63,94,.7)"></span>Base atrasada</td><td><span class="sw thin" style="background:rgba(245,158,11,.7)"></span>Em risco</td><td><span class="sw thin" style="background:repeating-linear-gradient(45deg,#22c55e,#22c55e 3px,#16a34a 3px,#16a34a 6px)"></span>Execução real</td></tr></table>`;
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Cronograma</title><style>
+    @page{size:${papel} landscape;margin:7mm}*{box-sizing:border-box}body{margin:0;background:#fff;font-family:Arial,sans-serif;color:#0f172a}
+    .pag{width:${larg}px;margin:0 auto 14px;border:1px solid #94a3b8;page-break-after:always;break-after:page}.pag:last-child{page-break-after:auto;break-after:auto}
+    .tit{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #94a3b8;font-size:12px}.corpo{display:flex;border-bottom:1px solid #94a3b8}
+    .tab{border-right:1px solid #94a3b8}.leg{width:100%;border-collapse:collapse;font-size:9.5px}.leg td{padding:3px 8px;white-space:nowrap}.leg .pj{border-right:1px solid #94a3b8;width:190px;font-size:10.5px;vertical-align:middle}
+    .sw{display:inline-block;width:28px;height:9px;margin-right:6px;vertical-align:middle;border-radius:2px}.sw.thin{height:5px}.dm{display:inline-block;width:28px;text-align:center;margin-right:6px}
+    .ln{display:inline-block;width:28px;height:0;border-top:1.5px solid #2563eb;margin-right:6px;vertical-align:middle}.rod{text-align:center;font-size:10px;padding:4px;border-top:1px solid #94a3b8}
+    .no-print{text-align:center;margin:10px}.print-btn{padding:9px 20px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700}
+    @media print{.no-print{display:none}.pag{margin:0;border-color:#64748b}}
+    @media screen{body{background:#e2e8f0;padding:10px}.pag{background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)}}
+    </style></head><body><div class="no-print"><button class="print-btn" onclick="window.print()">🖨️ Imprimir Cronograma</button></div>
+    ${paginas.map((pg,i)=>`<div class="pag"><div class="tit"><b>📅 Cronograma — ${_escHtml(pg.pj?.nome||'')}</b><span>Emitido em ${hojeTxt}</span></div><div class="corpo">${pg.html}</div>${legenda.replace('{PJ}',_escHtml(pg.pj?.nome||''))}<div class="rod">Página ${i+1} de ${paginas.length}</div></div>`).join('')}
+    <script>setTimeout(function(){window.print();},500);<\/script></body></html>`;
+  const w=window.open('','_blank');
+  if(!w){notif('Popup bloqueado. Permita popups para imprimir.','wn');return;}
+  w.document.write(html);w.document.close();
+}
+
+// ═══════════════════════════════════════════
+// GANTT — EAP, linhas macro, marcos, vínculos e caminho crítico
+// (mantém as cores: status/atraso, linha de base e execução real)
 // ═══════════════════════════════════════════
 function renderGantt(list){
   const el=document.getElementById('gantt');if(!el)return;
-  const v=(list||S.atividades).filter(a=>a.inicio&&a.fim);
-  if(!v.length){el.innerHTML='<div class="empty"><div class="ei">📊</div><p>Adicione datas para ver o Gantt</p></div>';return;}
-  // Garante baseline em todas
-  v.forEach(a => garantirBaseline(a));
-  // Inclui datas de baseline E reais no cálculo do range
-  const dates=v.flatMap(a=>{
-    const arr=[new Date(a.inicio+'T00:00:00'),new Date(a.fim+'T00:00:00')];
-    if(a.baseline){
-      if(a.baseline.inicioOriginal) arr.push(new Date(a.baseline.inicioOriginal+'T00:00:00'));
-      if(a.baseline.fimOriginal) arr.push(new Date(a.baseline.fimOriginal+'T00:00:00'));
-    }
-    if(a.inicioReal) arr.push(new Date(a.inicioReal+'T00:00:00'));
-    if(a.terminoReal) arr.push(new Date(a.terminoReal+'T00:00:00'));
-    return arr;
-  });
-  const mn=new Date(Math.min(...dates.map(d=>d.getTime())));
-  const mx=new Date(Math.max(...dates.map(d=>d.getTime())));
-  const days=Math.ceil((mx-mn)/86400000)+1;
-  const todayStr=new Date().toISOString().split('T')[0];
-  const todayOff=Math.round((new Date(todayStr+'T00:00:00')-mn)/86400000);
-  const today=new Date();
-  today.setHours(0,0,0,0);
-  const dl=[];
-  for(let i=0;i<days;i++){const d=new Date(mn);d.setDate(d.getDate()+i);dl.push(`${d.getDate()}/${d.getMonth()+1}`);}
-  const cols={'Planejada':'var(--ac)','Em andamento':'var(--gn)','Concluída':'var(--t3)','Atrasada':'var(--rd)','Pausada':'var(--yl)'};
-  const minW=180+days*32;
-  let h=`<div style="min-width:${minW}px">`;
-  // Legenda da baseline + execução
-  h += `<div style="display:flex;gap:12px;padding:8px 12px;background:var(--bg3);border-radius:6px;margin-bottom:8px;font-size:10px;color:var(--t2);align-items:center;flex-wrap:wrap;">
+  const linhas=(list&&list.length&&list[0].tipo)?list:_cronoLinhas(list||S.atividades);
+  const comData=linhas.filter(l=>l.tipo==='at'&&l.a.inicio&&l.a.fim);
+  if(!comData.length){el.innerHTML='<div class="empty"><div class="ei">📊</div><p>Adicione datas para ver o Gantt</p></div>';return;}
+  const datas=[];
+  comData.forEach(({a})=>{[a.inicio,a.fim,a.baseline?.inicioOriginal,a.baseline?.fimOriginal,a.inicioReal,a.terminoReal].forEach(d=>{if(d)datas.push(d);});});
+  datas.sort();
+  let mn=_isoAdd(datas[0],-1);while(_isoDow(mn)!==0)mn=_isoAdd(mn,-1);
+  const mx=_isoAdd(datas[datas.length-1],4);
+  const days=_isoDiff(mn,mx)+1;
+  const dayW=days<=45?28:days<=90?18:days<=180?10:days<=365?5:3;
+  const rowH=34,hdrH=34;
+  const pjs=[...new Set(comData.map(l=>String(l.a.projetoId)))];
+  const cal=pjs.length===1?_cronoCal(pjs[0]):null;
+  const g=_cronoSvg(linhas,{pal:CRONO_PAL_TELA,rowH,hdrH,mn,days,dayW,cal,baseline:true,real:true,rotulos:true,idp:'tl'});
+  const podeEditar=!(typeof isViewerReadOnly==='function'&&isViewerReadOnly());
+  const esq=linhas.map(l=>{
+    if(l.tipo==='pj')return`<div style="height:${rowH}px;display:flex;align-items:center;padding:0 8px;border-bottom:1px solid var(--b1);font-size:11px;font-weight:800;color:var(--ac);">📁 ${_escHtml(l.nome)}</div>`;
+    const a=l.a,inf=l.inf;
+    const cor=inf.resumo?'var(--t1)':_cronoCorBarra(a,CRONO_PAL_TELA);
+    const tog=inf.resumo?`<span onclick="cronoToggle(${a.id})" style="cursor:pointer;width:12px;display:inline-block;color:var(--t2)">${_cronoRecolhidos.has(a.id)?'▸':'▾'}</span>`:'<span style="width:12px;display:inline-block"></span>';
+    const marco=!inf.resumo&&(a.duracao??1)===0;
+    return`<div style="height:${rowH}px;display:flex;align-items:center;gap:4px;padding:0 6px;border-bottom:1px solid var(--b1);font-size:10px;color:var(--t1);" title="${_escHtml(a.nome)} — ${fd(a.inicio)} → ${fd(a.fim)}${inf.fmtPred?' | Pred.: '+inf.fmtPred:''}">
+      <span style="font-family:'JetBrains Mono';color:var(--t3);min-width:20px;font-size:9px;">${inf.num}</span>
+      <span style="padding-left:${inf.nivel*12}px"></span>${tog}
+      <span style="width:6px;height:6px;border-radius:${marco?'0':'50%'};${marco?'transform:rotate(45deg);':''}background:${cor};flex-shrink:0;display:inline-block"></span>
+      <span style="${inf.resumo?'font-weight:800;':''}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;${podeEditar?'cursor:pointer;':''}" ${podeEditar?`onclick="abrirAtiv(${a.id})"`:''}>${_escHtml(a.nome)}</span>
+      ${inf.critico&&!inf.resumo?'<span title="Caminho crítico (folga 0)" style="color:#ef4444;font-size:9px;">⚡</span>':''}
+      <span style="font-size:8px;color:var(--t3);white-space:nowrap">${a.pct?a.pct+'%':''}</span>
+    </div>`;
+  }).join('');
+  const sw=(bg,extra='')=>`<span style="width:18px;height:7px;background:${bg};border-radius:2px;display:inline-block;${extra}"></span>`;
+  el.innerHTML=`
+  <div style="display:flex;gap:12px;padding:8px 12px;background:var(--bg3);border-radius:6px;margin-bottom:6px;font-size:10px;color:var(--t2);align-items:center;flex-wrap:wrap;">
+    <span style="font-weight:700;color:var(--t1);">📊 Barras:</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('var(--ac)')}Planejada</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('var(--gn)')}Em andamento</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('#eab308')}Atraso ≤7d</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('#f97316')}≤15d</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('#dc2626')}&gt;15d</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('#6b7280')}Não iniciada</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('var(--t1)','height:4px')}Linha macro</span>
+    <span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;background:var(--ac);transform:rotate(45deg);display:inline-block"></span>Marco</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('transparent','border:1.6px solid #ef4444')}⚡ Caminho crítico</span>
+    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;border-top:1.5px solid #3b82f6;display:inline-block"></span>Vínculo</span>
+  </div>
+  <div style="display:flex;gap:12px;padding:8px 12px;background:var(--bg3);border-radius:6px;margin-bottom:8px;font-size:10px;color:var(--t2);align-items:center;flex-wrap:wrap;">
     <span style="font-weight:700;color:var(--t1);">📐 Linha de Base:</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;height:6px;background:rgba(148,163,184,.4);border:1px dashed rgba(148,163,184,.5);border-radius:3px;display:inline-block;"></span>No prazo</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;height:6px;background:rgba(34,197,94,.55);border:1px dashed rgba(34,197,94,.7);border-radius:3px;display:inline-block;"></span>Antecipada</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;height:6px;background:rgba(244,63,94,.6);border:1px dashed rgba(244,63,94,.8);border-radius:3px;display:inline-block;"></span>Atrasada</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;height:6px;background:rgba(245,158,11,.55);border:1px dashed rgba(245,158,11,.7);border-radius:3px;display:inline-block;"></span>Em risco</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('rgba(148,163,184,.4)','height:5px;border:1px dashed rgba(148,163,184,.5)')}No prazo</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('rgba(34,197,94,.55)','height:5px;border:1px dashed rgba(34,197,94,.7)')}Antecipada</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('rgba(244,63,94,.6)','height:5px;border:1px dashed rgba(244,63,94,.8)')}Atrasada</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('rgba(245,158,11,.55)','height:5px;border:1px dashed rgba(245,158,11,.7)')}Em risco</span>
     <span style="border-left:1px solid var(--b1);padding-left:12px;margin-left:6px;"></span>
     <span style="font-weight:700;color:var(--t1);">✅ Execução:</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;height:8px;background:repeating-linear-gradient(45deg,#22c55e,#22c55e 3px,#16a34a 3px,#16a34a 6px);border-radius:3px;display:inline-block;"></span>Concluída</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;height:8px;background:repeating-linear-gradient(45deg,#0ea5e9,#0ea5e9 3px,#0284c7 3px,#0284c7 6px);border-radius:3px;display:inline-block;"></span>Em curso</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:18px;height:8px;background:repeating-linear-gradient(45deg,#f43f5e,#f43f5e 3px,#be123c 3px,#be123c 6px);border-radius:3px;display:inline-block;"></span>🔴 Prazo excedido</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('repeating-linear-gradient(45deg,#22c55e,#22c55e 3px,#16a34a 3px,#16a34a 6px)')}Concluída</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('repeating-linear-gradient(45deg,#0ea5e9,#0ea5e9 3px,#0284c7 3px,#0284c7 6px)')}Em curso</span>
+    <span style="display:flex;align-items:center;gap:5px">${sw('repeating-linear-gradient(45deg,#f43f5e,#f43f5e 3px,#be123c 3px,#be123c 6px)')}🔴 Prazo excedido</span>
   </div>
-  <div style="font-size:9px;color:var(--t3);font-style:italic;padding:2px 12px 8px;">Topo = Linha de base · Meio = Datas planejadas atuais · Inferior listrada = Execução real (vermelha = excedeu prazo planejado)</div>`;
-  // Header
-  h+=`<div style="display:flex"><div style="width:180px;min-width:180px;padding:6px 9px;font-size:9px;font-weight:700;color:var(--t3);border-right:1px solid var(--b1);text-transform:uppercase">Atividade</div><div style="flex:1;display:flex;position:relative">`;
-  dl.forEach((d,i)=>{
-    const isToday=i===todayOff;
-    h+=`<div style="flex:1;text-align:center;padding:5px 1px;font-size:8px;font-weight:${isToday?'700':'600'};color:${isToday?'var(--ac)':'var(--t3)'};border-right:1px solid var(--b1);min-width:26px;background:${isToday?'rgba(0,200,240,.08)':'transparent'}">${d}</div>`;
-  });
-  h+=`</div></div>`;
-  // Rows
-  v.forEach((a)=>{
-    const st=new Date(a.inicio+'T00:00:00'),en=new Date(a.fim+'T00:00:00');
-    const off=Math.round((st-mn)/86400000);
-    const dur=Math.round((en-st)/86400000)+1;
-    const pct=(off/days*100).toFixed(1);
-    const w=Math.max(.5,dur/days*100).toFixed(1);
-    
-    // Verifica atraso ou não iniciada para definir cor da barra
-    let barColor=cols[a.status]||'var(--ac)';
-    let atrasoBadge='';
-    if(a.fim&&a.status!=='Concluída'&&a.status!=='Pausada'){
-      const fimDate=new Date(a.fim+'T00:00:00');
-      const iniDate=new Date(a.inicio+'T00:00:00');
-      const diffDays=Math.floor((today-fimDate)/(1000*60*60*24));
-      const diasAteInicio=Math.floor((today-iniDate)/(1000*60*60*24));
-      
-      if(diffDays>0){
-        // Atrasada
-        if(diffDays<=7){
-          barColor='#eab308';
-          atrasoBadge=' ⚠️';
-        }else if(diffDays<=15){
-          barColor='#f97316';
-          atrasoBadge=' ⚠️';
-        }else{
-          barColor='#dc2626';
-          atrasoBadge=' 🔴';
-        }
-      }else if(diasAteInicio<0){
-        // Não iniciada (data de início no futuro)
-        barColor='#6b7280';
-        atrasoBadge=' ⏳';
-      }
-    }
-    
-    // Calcula barra de BASELINE (linha de base)
-    let baselineBar = '';
-    let variacaoLabel = '';
-    if(a.baseline && a.baseline.inicioOriginal && a.baseline.fimOriginal){
-      const stB = new Date(a.baseline.inicioOriginal+'T00:00:00');
-      const enB = new Date(a.baseline.fimOriginal+'T00:00:00');
-      const offB = Math.round((stB-mn)/86400000);
-      const durB = Math.round((enB-stB)/86400000)+1;
-      const pctB = (offB/days*100).toFixed(1);
-      const wB = Math.max(.5, durB/days*100).toFixed(1);
-      const variacao = calcularVariacaoBaseline(a);
-      variacaoLabel = variacao.label;
-      // Cor da baseline conforme variação
-      const corBaseLine = variacao.corBaseline;
-      // Borda conforme cenário
-      const borderStyle = variacao.statusVariacao === 'antecipada' ? '1px dashed rgba(34,197,94,.7)'
-        : variacao.statusVariacao === 'atrasada' ? '1px dashed rgba(244,63,94,.8)'
-        : variacao.statusVariacao === 'em-risco' ? '1px dashed rgba(245,158,11,.7)'
-        : '1px dashed rgba(148,163,184,.5)';
-      baselineBar = `<div title="Linha de base: ${a.baseline.inicioOriginal} → ${a.baseline.fimOriginal} | ${variacao.label}"
-         style="height:6px;border-radius:3px;background:${corBaseLine};border:${borderStyle};position:absolute;left:${pctB}%;width:${wB}%;min-width:4px;top:2px;z-index:1;"></div>`;
-    }
-
-    // ── BARRA DE EXECUÇÃO REAL (se houver datas reais registradas) ──
-    let realBar = '';
-    let realLabel = '';
-    if(a.inicioReal){
-      const stR = new Date(a.inicioReal+'T00:00:00');
-      const enR = a.terminoReal ? new Date(a.terminoReal+'T00:00:00') : today;
-      const offR = Math.round((stR-mn)/86400000);
-      const durR = Math.round((enR-stR)/86400000)+1;
-      const pctR = (offR/days*100).toFixed(1);
-      const wR = Math.max(.5, durR/days*100).toFixed(1);
-      const concluida = !!a.terminoReal;
-      const excedInfo = calcularExcedenteReal(a);
-      const ehExcedente = excedInfo && excedInfo.ehExcedente;
-      // Cores: VERMELHO se prazo excedido, senão verde (concluída) ou azul (em andamento)
-      let corListra, corListra2, txtTitle;
-      if(ehExcedente){
-        corListra = '#f43f5e'; corListra2 = '#be123c';
-        txtTitle = (concluida ? 'Concluída em' : 'Em execução desde')+' '+a.inicioReal+(concluida?' → '+a.terminoReal:'')+' — '+excedInfo.excedente+' dia(s) excedente(s) (planejado '+excedInfo.duracaoPlanejada+'d / real '+excedInfo.duracaoReal+'d)';
-      } else if(concluida){
-        corListra = '#22c55e'; corListra2 = '#16a34a';
-        txtTitle = 'Execução real concluída: '+a.inicioReal+' → '+a.terminoReal+(excedInfo?' ('+excedInfo.duracaoReal+'d real / '+excedInfo.duracaoPlanejada+'d planejado)':'');
-      } else {
-        corListra = '#0ea5e9'; corListra2 = '#0284c7';
-        txtTitle = 'Execução em andamento desde '+a.inicioReal;
-      }
-      realBar = `<div title="${txtTitle}"
-         style="height:8px;border-radius:3px;background:repeating-linear-gradient(45deg,${corListra},${corListra} 3px,${corListra2} 3px,${corListra2} 6px);position:absolute;left:${pctR}%;width:${wR}%;min-width:4px;bottom:2px;z-index:1;border:1px solid ${corListra2};"></div>`;
-      // Label conforme cenário
-      if(ehExcedente){
-        realLabel = '🔴 Excedeu '+excedInfo.excedente+'d';
-      } else if(concluida){
-        realLabel = '✅ Real concluído';
-      } else {
-        realLabel = '⏵ Em execução';
-      }
-    }
-
-    const proj=S.projetos.find(p=>p.id==a.projetoId);
-    const minRowHeight = a.inicioReal ? 52 : 42;
-    h+=`<div style="display:flex;border-bottom:1px solid var(--b1)">
-      <div style="width:180px;min-width:180px;padding:6px 9px;font-size:10px;color:var(--t1);border-right:1px solid var(--b1);display:flex;align-items:center;gap:5px">
-        <span style="width:5px;height:5px;border-radius:50%;background:${barColor};flex-shrink:0;display:inline-block"></span>
-        <div><div>${a.nome}${atrasoBadge}</div>${proj?`<div style="font-size:8px;color:var(--t3)">${proj.nome}</div>`:''}${variacaoLabel?`<div style="font-size:8px;color:var(--t2);margin-top:1px">${variacaoLabel}</div>`:''}${realLabel?`<div style="font-size:8px;color:${realLabel.startsWith('🔴')?'#f43f5e':(realLabel.startsWith('✅')?'#22c55e':'#0ea5e9')};margin-top:1px;font-weight:600;">${realLabel}</div>`:''}</div>
-      </div>
-      <div style="flex:1;position:relative;min-height:${minRowHeight}px">
-        ${todayOff>=0&&todayOff<days?`<div style="position:absolute;top:0;bottom:0;left:${(todayOff/days*100).toFixed(1)}%;width:1px;background:var(--ac);opacity:.4;z-index:1;"></div>`:''}
-        ${baselineBar}
-        <div title="Datas atuais: ${a.inicio} → ${a.fim}"
-             style="height:18px;border-radius:4px;background:${barColor};opacity:.92;position:absolute;left:${pct}%;width:${w}%;min-width:4px;top:14px;display:flex;align-items:center;padding:0 5px;font-size:8px;font-weight:700;color:#000;white-space:nowrap;overflow:hidden;z-index:2">${a.nome}</div>
-        ${realBar}
-      </div>
-    </div>`;
-  });
-  h+=`</div>`;
-  el.innerHTML=h;
+  <div style="font-size:9px;color:var(--t3);font-style:italic;padding:0 12px 8px;">Barra = datas planejadas atuais (faixa escura = % concluído) · abaixo dela = linha de base · listrada = execução real · ⚡ = caminho crítico (folga zero) · fundo cinza = fim de semana/feriado</div>
+  <div style="display:flex;border:1px solid var(--b1);border-radius:8px;overflow:hidden;">
+    <div style="width:290px;min-width:290px;border-right:1px solid var(--b1);background:var(--bg2);">
+      <div style="height:${hdrH}px;display:flex;align-items:center;padding:0 8px;font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;border-bottom:1px solid var(--b1);background:var(--bg3);">Id · Atividade</div>
+      ${esq}
+    </div>
+    <div style="flex:1;overflow-x:auto;">${g.svg}</div>
+  </div>`;
 }
 
 // ═══════════════════════════════════════════
