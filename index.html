@@ -13269,6 +13269,13 @@ function _cronoCal(pjId){
   _cronoCalCache[key]=cal;
   return cal;
 }
+// Data de início padrão (como no MS Project): início da linha macro > início do projeto > hoje
+function _cronoInicioPadrao(pjId,paiId){
+  const pai=paiId?S.atividades.find(x=>x.id==paiId):null;
+  if(pai&&pai.inicio)return pai.inicio;
+  const p=S.projetos.find(x=>x.id==pjId);
+  return (p&&p.inicio)||new Date().toISOString().slice(0,10);
+}
 // Duração em dias úteis (0 = marco)
 function _cronoDur(a,cal){
   if(typeof a.duracao==='number'&&a.duracao>=0)return a.duracao;
@@ -13349,12 +13356,18 @@ function _cronoAgendar(lista,pjId,soRollup){
           S0=lim;agendado=true;
         }
       }
+      let preencher=false;
+      if(S0==null&&!a.terminoReal&&typeof a.duracao==='number'){
+        const pr=S.projetos.find(x=>x.id==pjId);
+        S0=cal.ceil(a.inicioReal||(pr&&pr.inicio)||new Date().toISOString().slice(0,10));
+        preencher=true;
+      }
       if(S0==null)r={S:null,F:null,eS:null,eF:null,D};
       else{
-        let F=agendado?S0+Math.max(D,1)-1:(a.fim?cal.floor(a.fim):S0+Math.max(D,1)-1);
-        if(D===0&&agendado)F=S0;
+        let F=(agendado||preencher)?S0+Math.max(D,1)-1:(a.fim?cal.floor(a.fim):S0+Math.max(D,1)-1);
+        if(D===0&&(agendado||preencher))F=S0;
         if(F<S0)F=S0;
-        r={S:S0,F,D,agendado,eS:a.inicioReal?cal.ceil(a.inicioReal):S0,eF:a.terminoReal?cal.floor(a.terminoReal):F};
+        r={S:S0,F,D,agendado:agendado||preencher,eS:a.inicioReal?cal.ceil(a.inicioReal):S0,eF:a.terminoReal?cal.floor(a.terminoReal):F};
       }
     }
     val.set(id,r);estado.set(id,2);return r;
@@ -13366,7 +13379,9 @@ function _cronoAgendar(lista,pjId,soRollup){
     const r=val.get(a.id),inf=info.get(a.id);
     if(inf.resumo){a.resumo=true;return;}
     if(a.resumo)delete a.resumo;
-    if(r&&r.agendado){a.inicio=cal.date(r.S);a.fim=cal.date(r.F);if(typeof a.duracao!=='number')a.duracao=r.D;}
+    if(r&&r.agendado){a.inicio=cal.date(r.S);a.fim=cal.date(r.F);if(typeof a.duracao!=='number')a.duracao=r.D;
+      // Primeira data atribuída vira a linha de base (não é reprogramação)
+      if(a.baseline&&!a.baseline.inicioOriginal&&!a.baseline.fimOriginal){a.baseline.inicioOriginal=a.inicio;a.baseline.fimOriginal=a.fim;}}
   });
   // Consolida linhas macro (de baixo para cima)
   const pctDe=a=>a.status==='Concluída'?100:Math.max(0,Math.min(100,+a.pct||0));
@@ -13385,8 +13400,8 @@ function _cronoAgendar(lista,pjId,soRollup){
     const st=fs.map(c=>c.status);
     a.status=st.every(s=>s==='Concluída')?'Concluída':st.some(s=>s==='Atrasada')?'Atrasada':st.every(s=>s==='Pausada')?'Pausada':(st.some(s=>s==='Em andamento'||s==='Concluída')||a.inicioReal)?'Em andamento':'Planejada';
     garantirBaseline(a);
-    const bi=fs.map(c=>c.baseline&&c.baseline.inicioOriginal).filter(Boolean).sort();
-    const bf=fs.map(c=>c.baseline&&c.baseline.fimOriginal).filter(Boolean).sort();
+    const bi=fs.map(c=>(c.baseline&&c.baseline.inicioOriginal)||c.inicio).filter(Boolean).sort();
+    const bf=fs.map(c=>(c.baseline&&c.baseline.fimOriginal)||c.fim).filter(Boolean).sort();
     a.baseline.inicioOriginal=bi[0]||a.inicio;a.baseline.fimOriginal=bf.pop()||a.fim;
   });
   // Folga total / caminho crítico (passo de volta), só sublinhas
@@ -13547,8 +13562,9 @@ function _cronoMigrar(){
   let mud=false;
   S.atividades.forEach((a,i)=>{if(a.ordem==null){a.ordem=i+1;mud=true;}});
   if(!Array.isArray(S.reprogramacoes)){S.reprogramacoes=[];mud=true;}
+  const semData=S.atividades.filter(a=>!a.inicio&&!a.terminoReal).length;
   [...new Set(S.atividades.map(a=>String(a.projetoId)))].forEach(pj=>{try{_cronoAgendar(S.atividades,pj,true);}catch(e){console.warn('crono rollup',e);}});
-  if(mud)save();
+  if(mud||semData!==S.atividades.filter(a=>!a.inicio&&!a.terminoReal).length)save();
 }
 
 // ── Modal da atividade: campos de estrutura ──
@@ -13573,6 +13589,10 @@ function atFimChange(){
   if(ini&&fim){if(fim<ini){document.getElementById('atFim').value=ini;}document.getElementById('atDur').value=Math.max(1,_atCal().dias(ini,document.getElementById('atFim').value));}
 }
 function atDurChange(){
+  if(!document.getElementById('atIni').value&&document.getElementById('atDur').value!==''&&!document.getElementById('atIni').disabled){
+    const pj=document.getElementById('atPj').value;
+    if(pj)document.getElementById('atIni').value=_cronoInicioPadrao(pj,parseInt(document.getElementById('atPai').value)||null);
+  }
   const ini=document.getElementById('atIni').value;const d=document.getElementById('atDur').value;
   if(ini&&d!==''){const dur=Math.max(0,parseInt(d)||0);document.getElementById('atFim').value=dur===0?ini:_atCal().fimPorDuracao(ini,dur);atDataChange();}
 }
@@ -13585,7 +13605,7 @@ function _atModoResumo(ehResumo){
 function cronoNovaSub(paiId){
   if(_bloquearSeVisualizador())return;
   const p=S.atividades.find(x=>x.id===paiId);if(!p)return;
-  abrirAtiv(null,{projetoId:p.projetoId,parentId:p.id,inicio:p.inicio||''});
+  abrirAtiv(null,{projetoId:p.projetoId,parentId:p.id,inicio:_cronoInicioPadrao(p.projetoId,p.id)});
 }
 function _cronoEstrutura(id,desc,fn){
   if(_bloquearSeVisualizador())return;
