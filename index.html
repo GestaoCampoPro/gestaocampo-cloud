@@ -1346,7 +1346,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
       <button class="btn" onclick="abrirImpressaoAtiv()">🖨️ Imprimir</button>
       <button class="btn" onclick="imprimirCronograma()" title="Imprime tabela + Gantt no estilo MS Project">📅 Cronograma</button>
       <button class="btn" onclick="abrirReprogramacoes()" title="Lista de reprogramações, motivos e impactos">📜 Reprogramações</button>
-      <button class="btn crono-ed" onclick="abrirFeriados()" title="Calendário de trabalho: Seg–Sex menos feriados">🗓️ Feriados</button>
+      <button class="btn crono-ed" onclick="abrirFeriados()" title="Calendário de trabalho: feriados e exceções (sábado/domingo liberados)">🗓️ Calendário</button>
       <button class="btn crono-ed" onclick="cronoNovaLinhaBase()" title="Grava as datas atuais como nova linha de base do projeto filtrado">📐 Nova linha de base</button>
       <span style="margin-left:auto;display:flex;gap:4px;"><button class="btn xs" onclick="cronoExpandirTudo(true)" title="Expandir todas as linhas macro">▾ Expandir</button><button class="btn xs" onclick="cronoExpandirTudo(false)" title="Recolher todas as linhas macro">▸ Recolher</button></span>
     </div>
@@ -2529,8 +2529,8 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
 
 <!-- MODAL FERIADOS (calendário do projeto) -->
 <div class="ov" id="mFeriados">
-  <div class="modal msm">
-    <div class="mh"><div class="mht">🗓️ Calendário de Trabalho — Feriados</div><button class="mc" onclick="fechar('mFeriados')">✕</button></div>
+  <div class="modal" style="max-width:640px;">
+    <div class="mh"><div class="mht">🗓️ Calendário de Trabalho — Feriados e Exceções</div><button class="mc" onclick="fechar('mFeriados')">✕</button></div>
     <div class="fg"><label class="fl">Projeto</label><select class="fi" id="ferPj" onchange="ferCarregar()"></select></div>
     <div style="font-size:10px;color:var(--t3);margin-bottom:6px;">Dias úteis: segunda a sexta, exceto os feriados abaixo. As durações e o encadeamento das predecessoras usam este calendário.</div>
     <div style="display:flex;gap:6px;align-items:end;margin-bottom:8px;">
@@ -2541,7 +2541,20 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:11px;">
       Feriados nacionais de <input type="number" class="fi" id="ferAno" style="width:80px;margin:0;"> <button class="btn sm" onclick="ferImportar()">⬇️ Incluir</button>
     </div>
-    <div id="ferLista" style="max-height:260px;overflow:auto;border:1px solid var(--b1);border-radius:7px;"></div>
+    <div id="ferLista" style="max-height:200px;overflow:auto;border:1px solid var(--b1);border-radius:7px;"></div>
+    <div style="padding:10px;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.25);border-radius:8px;margin-top:12px;">
+      <div style="font-size:11px;font-weight:700;color:var(--gn);margin-bottom:4px;">✅ Exceções — dias de trabalho autorizados</div>
+      <div style="font-size:10px;color:var(--t3);margin-bottom:6px;">Sábados, domingos ou feriados em que haverá trabalho. Esses dias passam a contar como dia útil nas durações e no encadeamento.</div>
+      <div style="display:flex;gap:6px;align-items:end;margin-bottom:6px;">
+        <div class="fg" style="margin:0;"><label class="fl">Data</label><input type="date" class="fi" id="extData" style="margin:0;"></div>
+        <div class="fg" style="margin:0;flex:1;"><label class="fl">Motivo / autorização *</label><input class="fi" id="extNome" placeholder="Ex: Recuperar atraso — autorizado pelo cliente" style="margin:0;"></div>
+        <button class="btn sm" onclick="extAdd()">+ Liberar</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:11px;flex-wrap:wrap;">
+        Todos os sábados de <input type="date" class="fi" id="extIni" style="width:140px;margin:0;"> até <input type="date" class="fi" id="extFim" style="width:140px;margin:0;"> <button class="btn sm" onclick="extTodosSabados()">✅ Liberar sábados</button>
+      </div>
+      <div id="extLista" style="max-height:160px;overflow:auto;border:1px solid var(--b1);border-radius:7px;"></div>
+    </div>
     <div class="mf"><button class="btn" onclick="fechar('mFeriados')">Cancelar</button><button class="btn prim" onclick="ferSalvar()">💾 Salvar calendário</button></div>
   </div>
 </div>
@@ -13233,19 +13246,20 @@ function _isoDiff(a,b){return Math.round((new Date(b+'T00:00:00Z')-new Date(a+'T
 function _cronoFmtData(iso){if(!iso)return'—';const[y,m,d]=iso.split('-');return CRONO_DSEM[_isoDow(iso)]+' '+d+'/'+m+'/'+y.slice(2);}
 function _cronoFmtDur(d){return d===1?'1 dia':(d||0)+' dias';}
 
-// Calendário de trabalho do projeto (Seg–Sex, menos feriados cadastrados)
+// Calendário de trabalho do projeto (Seg–Sex, menos feriados, mais exceções de trabalho liberadas)
 const _cronoCalCache={};
 function _cronoCal(pjId){
   const p=S.projetos.find(x=>x.id==pjId);
   const fer=((p&&p.feriados)||[]).map(f=>f.data).filter(Boolean).sort();
-  const key=String(pjId||'')+'|'+fer.join(',');
+  const ext=((p&&p.diasExtras)||[]).map(f=>f.data).filter(Boolean).sort();
+  const key=String(pjId||'')+'|'+fer.join(',')+'|+'+ext.join(',');
   if(_cronoCalCache[key])return _cronoCalCache[key];
-  const ferSet=new Set(fer);
-  const isWork=iso=>{const w=_isoDow(iso);return w!==0&&w!==6&&!ferSet.has(iso);};
+  const ferSet=new Set(fer),extraSet=new Set(ext);
+  const isWork=iso=>{if(extraSet.has(iso))return true;const w=_isoDow(iso);return w!==0&&w!==6&&!ferSet.has(iso);};
   const days=[],idx=new Map();
   for(let d='2015-01-01';d<='2045-12-31';d=_isoAdd(d,1)){if(isWork(d)){idx.set(d,days.length);days.push(d);}}
   const cal={
-    isWork,ferSet,
+    isWork,ferSet,extraSet,
     ceil(iso){let x=iso;for(let k=0;k<40&&!idx.has(x);k++)x=_isoAdd(x,1);return idx.has(x)?idx.get(x):0;},
     floor(iso){let x=iso;for(let k=0;k<40&&!idx.has(x);k++)x=_isoAdd(x,-1);return idx.has(x)?idx.get(x):0;},
     date(i){return days[Math.max(0,Math.min(days.length-1,i))];},
@@ -13657,7 +13671,7 @@ function _feriadosNacionais(ano){
   const p=_pascoa(ano);
   return [[ano+'-01-01','Confraternização Universal'],[_isoAdd(p,-48),'Carnaval (facultativo)'],[_isoAdd(p,-47),'Carnaval (facultativo)'],[_isoAdd(p,-2),'Sexta-feira Santa'],[ano+'-04-21','Tiradentes'],[ano+'-05-01','Dia do Trabalho'],[_isoAdd(p,60),'Corpus Christi (facultativo)'],[ano+'-09-07','Independência'],[ano+'-10-12','Nossa Senhora Aparecida'],[ano+'-11-02','Finados'],[ano+'-11-15','Proclamação da República'],[ano+'-11-20','Consciência Negra'],[ano+'-12-25','Natal']].map(([data,nome])=>({data,nome}));
 }
-let _ferEdit=[];
+let _ferEdit=[],_extEdit=[];
 function abrirFeriados(){
   if(_bloquearSeVisualizador())return;
   const el=document.getElementById('ferPj');
@@ -13672,11 +13686,35 @@ function abrirFeriados(){
 function ferCarregar(){
   const p=S.projetos.find(x=>x.id==document.getElementById('ferPj').value);
   _ferEdit=JSON.parse(JSON.stringify((p&&p.feriados)||[]));
+  _extEdit=JSON.parse(JSON.stringify((p&&p.diasExtras)||[]));
   ferRender();
 }
 function ferRender(){
   _ferEdit.sort((a,b)=>a.data<b.data?-1:1);
+  _extRender();
   document.getElementById('ferLista').innerHTML=_ferEdit.length?_ferEdit.map((f,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid var(--b1);font-size:12px;"><span style="font-family:'JetBrains Mono';min-width:110px;">${_cronoFmtData(f.data)}</span><span style="flex:1;">${_escHtml(f.nome||'')}</span><button class="btn xs" style="color:var(--rd)" onclick="_ferEdit.splice(${i},1);ferRender()">🗑️</button></div>`).join(''):'<div style="padding:10px;font-size:11px;color:var(--t3);">Nenhum feriado cadastrado — o calendário considera Seg a Sex.</div>';
+}
+function _extRender(){
+  _extEdit.sort((a,b)=>a.data<b.data?-1:1);
+  const el=document.getElementById('extLista');if(!el)return;
+  el.innerHTML=_extEdit.length?_extEdit.map((f,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid var(--b1);font-size:12px;"><span style="font-family:'JetBrains Mono';min-width:110px;color:var(--gn);">${_cronoFmtData(f.data)}</span><span style="flex:1;">${_escHtml(f.nome||'')}</span><button class="btn xs" style="color:var(--rd)" onclick="_extEdit.splice(${i},1);_extRender()">🗑️</button></div>`).join(''):'<div style="padding:10px;font-size:11px;color:var(--t3);">Nenhuma exceção — sábados, domingos e feriados não contam como dia útil.</div>';
+}
+function extAdd(){
+  const d=document.getElementById('extData').value,n=document.getElementById('extNome').value.trim();
+  if(!d){notif('Informe a data','er');return;}
+  const w=_isoDow(d),ehFer=_ferEdit.some(f=>f.data===d);
+  if(w!==0&&w!==6&&!ehFer){notif('Esta data já é dia útil (segunda a sexta, sem feriado) — exceção só é necessária para sábado, domingo ou feriado.','wn');return;}
+  if(!n){notif('Informe o motivo/autorização do trabalho neste dia','er');return;}
+  if(!_extEdit.some(f=>f.data===d))_extEdit.push({data:d,nome:n,usuario:S.currentUser||'',em:new Date().toISOString()});
+  document.getElementById('extData').value='';document.getElementById('extNome').value='';
+  _extRender();
+}
+function extTodosSabados(){
+  const ini=document.getElementById('extIni').value,fim=document.getElementById('extFim').value;
+  const n=document.getElementById('extNome').value.trim()||'Sábados liberados';
+  if(!ini||!fim||fim<ini){notif('Informe o período (de / até)','er');return;}
+  let c=0;for(let d=ini;d<=fim;d=_isoAdd(d,1)){if(_isoDow(d)===6&&!_extEdit.some(f=>f.data===d)){_extEdit.push({data:d,nome:n,usuario:S.currentUser||'',em:new Date().toISOString()});c++;}}
+  _extRender();notif(c+' sábado(s) liberado(s) no período');
 }
 function ferAdd(){
   const d=document.getElementById('ferData').value,n=document.getElementById('ferNome').value.trim();
@@ -13693,11 +13731,22 @@ function ferImportar(){
 function ferSalvar(){
   const pjId=document.getElementById('ferPj').value;
   const p=S.projetos.find(x=>x.id==pjId);if(!p)return;
-  const antigos=p.feriados;
+  const antigos=p.feriados,antigosExt=p.diasExtras;
   p.feriados=JSON.parse(JSON.stringify(_ferEdit));
-  _cronoAplicar({pjId,descricao:'Alteração do calendário de feriados',origemNome:p.nome,categoriaSugerida:'Erro de Planejamento',mutar:()=>{},
-    aoCancelar:()=>{p.feriados=antigos;},
-    aoConcluir:()=>{fechar('mFeriados');save();renderAtiv();log('Feriados do projeto '+p.nome+' atualizados ('+p.feriados.length+')','📅');notif('📅 Calendário atualizado');}});
+  p.diasExtras=JSON.parse(JSON.stringify(_extEdit));
+  const novasExt=p.diasExtras.filter(x=>!(antigosExt||[]).some(y=>y.data===x.data));
+  _cronoAplicar({pjId,descricao:'Alteração do calendário de trabalho (feriados / exceções)',origemNome:p.nome,categoriaSugerida:novasExt.length?'Antecipação':'Erro de Planejamento',
+    // Novo calendário: recalcula o término pela duração (as com predecessoras o reagendamento já trata)
+    mutar:lista=>{
+      const cal=_cronoCal(pjId);
+      lista.forEach(a=>{
+        if(String(a.projetoId)!==String(pjId)||a.resumo||a.terminoReal||!a.inicio||typeof a.duracao!=='number')return;
+        if((a.predecessoras||[]).length)return;
+        a.fim=a.duracao===0?a.inicio:cal.fimPorDuracao(a.inicio,a.duracao);
+      });
+    },
+    aoCancelar:()=>{p.feriados=antigos;p.diasExtras=antigosExt;},
+    aoConcluir:()=>{fechar('mFeriados');save();renderAtiv();log('Calendário do projeto '+p.nome+' atualizado ('+p.feriados.length+' feriado(s), '+p.diasExtras.length+' exceção(ões) de trabalho)'+(novasExt.length?' — liberado: '+novasExt.map(x=>fd(x.data)+' ('+x.nome+')').join(', '):''),'📅');notif('📅 Calendário atualizado');}});
 }
 
 // ── Relatório de reprogramações / impactos ──
@@ -13793,12 +13842,13 @@ function _cronoSvg(linhas,o){
   [['g','#22c55e','#16a34a'],['b','#0ea5e9','#0284c7'],['r','#f43f5e','#be123c']].forEach(([k,c1,c2])=>{s+=`<pattern id="${o.idp}p${k}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="${c1}"/><rect x="3" width="3" height="6" fill="${c2}"/></pattern>`;});
   s+=`</defs>`;
   // Fins de semana / feriados + cabeçalho
-  const ferSet=o.cal?o.cal.ferSet:new Set();
+  const ferSet=o.cal?o.cal.ferSet:new Set(),extraSet=o.cal?o.cal.extraSet:new Set();
   s+=`<rect x="0" y="0" width="${W}" height="${hdrH}" style="fill:${pal.fundoHdr}"/>`;
   const semanal=days<=200;
   for(let i=0;i<days;i++){
     const iso=_isoAdd(mn,i),dw=_isoDow(iso);
-    if(dw===0||dw===6||ferSet.has(iso))s+=`<rect x="${i*dayW}" y="${hdrH}" width="${dayW}" height="${H-hdrH}" style="fill:${pal.fds}"/>`;
+    if(extraSet.has(iso))s+=`<rect x="${i*dayW}" y="${hdrH}" width="${dayW}" height="${H-hdrH}" style="fill:rgba(34,197,94,.10)"><title>Exceção: dia de trabalho liberado</title></rect>`;
+    else if(dw===0||dw===6||ferSet.has(iso))s+=`<rect x="${i*dayW}" y="${hdrH}" width="${dayW}" height="${H-hdrH}" style="fill:${pal.fds}"/>`;
     const [y,m,d]=iso.split('-');
     const marca=semanal?dw===0:d==='01';
     if(marca||i===0){
