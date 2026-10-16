@@ -1043,6 +1043,17 @@ body.light-mode .mf{background:rgba(0,0,0,.03)}
 /* ═══ RESTRIÇÃO DO PERFIL VISUALIZADOR — só Atividades e Presença ═══ */
 #pg-atividades .tw table th,#pg-atividades .tw table td{padding:8px 6px!important;}
 #pg-atividades .card>.tw{max-height:68vh;overflow:auto;}
+#pg-atividades #atTw table{min-width:1320px;}
+#pg-atividades #atTw th:nth-child(2),#pg-atividades #atTw td:nth-child(2){min-width:250px;}
+#pg-atividades #atTw th:nth-child(4),#pg-atividades #atTw td:nth-child(4){min-width:78px;white-space:nowrap;}
+#pg-atividades #atTw th:nth-child(5),#pg-atividades #atTw td:nth-child(5),
+#pg-atividades #atTw th:nth-child(6),#pg-atividades #atTw td:nth-child(6),
+#pg-atividades #atTw th:nth-child(9),#pg-atividades #atTw td:nth-child(9),
+#pg-atividades #atTw th:nth-child(10),#pg-atividades #atTw td:nth-child(10){min-width:98px;white-space:nowrap;}
+#pg-atividades #atTw th:nth-child(7),#pg-atividades #atTw td:nth-child(7){min-width:70px;}
+#pg-atividades #atTw th:nth-child(11),#pg-atividades #atTw td:nth-child(11){min-width:120px;}
+#pg-atividades #atTw th:nth-child(12),#pg-atividades #atTw td:nth-child(12){min-width:118px;}
+#atScrollTop::-webkit-scrollbar{height:10px;}#atScrollTop::-webkit-scrollbar-thumb{background:var(--b1);border-radius:6px;}
 #pg-atividades .card>.tw thead th{position:sticky;top:0;z-index:3;background:var(--bg3);box-shadow:0 1px 0 var(--b1);}
 #pg-atividades .card>.tw tbody td:last-child{position:sticky;right:0;z-index:2;background:var(--bg2);box-shadow:-6px 0 8px -6px rgba(0,0,0,.45);}
 #pg-atividades .card>.tw thead th:last-child{right:0;z-index:4;}
@@ -1358,8 +1369,13 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
       <span style="margin-left:auto;display:flex;gap:4px;"><button class="btn xs" onclick="cronoExpandirTudo(true)" title="Expandir todas as linhas macro">▾ Expandir</button><button class="btn xs" onclick="cronoExpandirTudo(false)" title="Recolher todas as linhas macro">▸ Recolher</button></span>
     </div>
     <div class="card" style="margin-bottom:12px;">
-      <div class="ct"><span class="cti">📋</span>Lista</div>
-      <div class="tw"><table>
+      <div class="ct" style="display:flex;align-items:center;gap:8px;"><span class="cti">📋</span>Lista
+        <span style="margin-left:auto;display:flex;gap:4px;align-items:center;font-size:10px;color:var(--t3);font-weight:400;">Colunas
+          <button class="btn xs" onclick="atRolarColunas(-1)" title="Voltar colunas (início da tabela)">◀</button>
+          <button class="btn xs" onclick="atRolarColunas(1)" title="Avançar colunas">▶</button>
+        </span></div>
+      <div id="atScrollTop" style="overflow-x:auto;overflow-y:hidden;height:12px;margin-bottom:2px;"><div style="height:1px;"></div></div>
+      <div class="tw" id="atTw"><table>
         <thead><tr><th title="Id da linha (use nas predecessoras)">Id</th><th style="min-width:200px;">Atividade</th><th>Setor</th><th title="Duração em dias úteis">Duração</th><th>Início</th><th>Fim</th><th title="Predecessoras: Id + tipo (TI/II/TT/IT) + defasagem">Predec.</th><th>%</th><th title="Data em que a atividade efetivamente começou">Início Real</th><th title="Data em que a atividade foi efetivamente concluída">Término Real</th><th>Responsáveis</th><th>Status</th><th></th></tr></thead>
         <tbody id="tbAtiv"></tbody>
       </table></div>
@@ -5885,6 +5901,29 @@ function _cronoAtualizarModo(fp){
   }
 }
 let _cronoDestacar=null;
+function _atSyncScroll(){
+  const tw=document.getElementById('atTw'),top=document.getElementById('atScrollTop');if(!tw||!top)return;
+  top.firstElementChild.style.width=tw.scrollWidth+'px';
+  top.style.display=tw.scrollWidth>tw.clientWidth+2?'':'none';
+  if(!tw._syncOk){
+    let lock=false;
+    tw.addEventListener('scroll',()=>{if(lock)return;lock=true;top.scrollLeft=tw.scrollLeft;lock=false;});
+    top.addEventListener('scroll',()=>{if(lock)return;lock=true;tw.scrollLeft=top.scrollLeft;lock=false;});
+    window.addEventListener('resize',_atSyncScroll);
+    tw._syncOk=true;
+  }
+}
+// Avança/volta até a próxima coluna escondida
+function atRolarColunas(dir){
+  const tw=document.getElementById('atTw');if(!tw)return;
+  const ths=[...tw.querySelectorAll('thead th')];const fixa=ths[ths.length-1]?.offsetWidth||0;
+  const ini=tw.scrollLeft,vis=tw.clientWidth-fixa;
+  let alvo;
+  if(dir>0){const th=ths.find(t=>t.offsetLeft+t.offsetWidth>ini+vis+2);alvo=th?th.offsetLeft+th.offsetWidth-vis:tw.scrollWidth;}
+  else{const th=[...ths].reverse().find(t=>t.offsetLeft<ini-2);alvo=th?th.offsetLeft:0;}
+  alvo=dir>0?Math.max(alvo,ini+vis*0.5):Math.min(alvo,ini-vis*0.5);
+  tw.scrollTo({left:Math.max(0,Math.min(alvo,tw.scrollWidth-tw.clientWidth)),behavior:'smooth'});
+}
 function renderAtiv(){
   try{_cronoAtualizarModo(document.getElementById('filAtPj')?.value||'');}catch(e){}
   const fp=document.getElementById('filAtPj')?.value||'';
@@ -6060,6 +6099,7 @@ function renderAtiv(){
     return`<tr data-atid="${a.id}" ${rowStyle}><td style="font-family:'JetBrains Mono';color:var(--t3)" title="EAP ${inf.wbs}">${inf.num}</td><td class="b">${nomeCell}</td><td style="font-size:10px">${a.setor||(fp?'—':(p?p.nome:'—'))}</td><td style="font-size:11px;white-space:nowrap;${inf.resumo?'font-weight:700;':''}">${_cronoFmtDur(a.duracao??_cronoDur(a,_cronoCal(a.projetoId)))}</td><td style="font-size:11px;">${baselineDataInicio}</td><td style="font-size:11px;">${baselineDataFim}</td><td style="font-size:10px;font-family:'JetBrains Mono';color:var(--t2)">${inf.fmtPred||'—'}</td><td>${pctCell}</td><td>${inicioRealCell}</td><td>${terminoRealCell}</td><td style="font-size:10px;color:var(--t2)">${rn||'—'}</td><td>${statusCell}</td><td style="white-space:nowrap;"><div style="display:grid;grid-template-columns:repeat(4,auto);gap:2px;justify-content:start;">${histBtn}<button class="btn xs" onclick="abrirAtiv(${a.id})" title="Editar">✏️</button><button class="btn xs" style="color:var(--rd)" onclick="delAtiv(${a.id})" title="Excluir">🗑️</button>${estr}</div></td></tr>`;
   }).join('');
   renderGantt(linhas);
+  try{_atSyncScroll();}catch(e){}
   if(_cronoDestacar){
     const tr=tb.querySelector('tr[data-atid="'+_cronoDestacar+'"]');_cronoDestacar=null;
     if(tr){tr.classList.remove('crono-flash');void tr.offsetWidth;tr.classList.add('crono-flash');
