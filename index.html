@@ -5622,8 +5622,12 @@ function _commitSalvamentoAtiv(id, nome, pjId, motivoAtraso){
   }
 
   // % concluído (lógica MS Project): >0 marca início real, 100 marca término real
-  const pctInformado = parseInt(document.getElementById('atPct')?.value)||0;
+  const pctTxtForm = document.getElementById('atPct')?.value ?? '';
+  const pctInformado = parseInt(pctTxtForm)||0;
   if(statusVal!=='Pausada'){
+    // Reabrir/zerar: o que o usuário escolheu prevalece sobre datas reais antigas
+    if(statusVal==='Planejada'){ inicioRealFinal=''; terminoRealFinal=''; }
+    else if(statusVal!=='Concluída' && pctTxtForm!=='' && pctInformado<100){ terminoRealFinal=''; }
     if(pctInformado>0 && !inicioRealFinal) inicioRealFinal = (novoIni2 && novoIni2<=hojeISO) ? novoIni2 : hojeISO;
     if(pctInformado>=100 && !terminoRealFinal) terminoRealFinal = hojeISO;
   }
@@ -5761,12 +5765,19 @@ function onStatusAtivChange(){
   const elFimReal = document.getElementById('atFimReal');
   if(!elIniReal || !elFimReal) return;
   const hojeISO = new Date().toISOString().split('T')[0];
-  if(status === 'Em andamento'){
+  const elPct = document.getElementById('atPct');
+  if(status === 'Planejada'){
+    elIniReal.value=''; elFimReal.value=''; if(elPct) elPct.value='';
+  } else if(status === 'Em andamento'){
     if(!elIniReal.value){
       elIniReal.value = hojeISO;
       if(typeof notif === 'function') notif('✅ Início real preenchido com hoje','ok');
     }
+    // Reaberta: deixa de estar concluída
+    elFimReal.value='';
+    if(elPct && (parseInt(elPct.value)||0)>=100) elPct.value='';
   } else if(status === 'Concluída'){
+    if(elPct) elPct.value=100;
     if(!elIniReal.value){
       // se nunca registrou início, usa o planejado ou hoje
       elIniReal.value = document.getElementById('atIni')?.value || hojeISO;
@@ -13428,6 +13439,7 @@ function _cronoAncestrais(info,id){const r=[];let p=info.get(id)?.pai;while(p){r
 // soRollup=true: não altera datas das sublinhas, só recalcula as linhas macro.
 function _cronoAgendar(lista,pjId,soRollup){
   const cal=_cronoCal(pjId);
+  const travado=typeof _cronoLinhaBaseSalva==='function'&&_cronoLinhaBaseSalva(pjId);
   const T=_cronoArvore(lista,pjId);
   const {seq,info,porId}=T;
   seq.forEach(a=>{if(Array.isArray(a.predecessoras))a.predecessoras=a.predecessoras.filter(p=>porId.has(p.id)&&p.id!==a.id);});
@@ -13448,7 +13460,8 @@ function _cronoAgendar(lista,pjId,soRollup){
       const D=_cronoDur(a,cal);
       const preds=[...(a.predecessoras||[])];
       _cronoAncestrais(info,id).forEach(pid=>preds.push(...(porId.get(pid)?.predecessoras||[])));
-      const fixo=!!a.inicioReal||a.status==='Concluída';
+      // Só depois da linha de base salva a atividade iniciada/concluída fica "travada" (como no MS Project)
+      const fixo=travado&&(!!a.inicioReal||a.status==='Concluída');
       let S0=a.inicio?cal.ceil(a.inicio):null,agendado=false;
       if(preds.length){
         let lim=-Infinity;
@@ -13481,7 +13494,7 @@ function _cronoAgendar(lista,pjId,soRollup){
         let F=(agendado||preencher)?S0+Math.max(D,1)-1:(a.fim?cal.floor(a.fim):S0+Math.max(D,1)-1);
         if(D===0&&(agendado||preencher))F=S0;
         if(F<S0)F=S0;
-        r={S:S0,F,D,agendado:agendado||preencher,eS:a.inicioReal?cal.ceil(a.inicioReal):S0,eF:a.terminoReal?cal.floor(a.terminoReal):F};
+        r={S:S0,F,D,agendado:agendado||preencher,eS:(travado&&a.inicioReal)?cal.ceil(a.inicioReal):S0,eF:(travado&&a.terminoReal)?cal.floor(a.terminoReal):F};
       }
     }
     val.set(id,r);estado.set(id,2);return r;
@@ -13761,6 +13774,7 @@ function atPctChange(){
   const eIR=document.getElementById('atIniReal'),eTR=document.getElementById('atFimReal');
   if(v>=100){st.value='Concluída';if(!eIR.value)eIR.value=(ini&&ini<=hoje)?ini:hoje;if(!eTR.value)eTR.value=hoje;}
   else if(v>0){if(st.value==='Planejada'||st.value==='Concluída')st.value='Em andamento';if(!eIR.value)eIR.value=(ini&&ini<=hoje)?ini:hoje;if(eTR.value&&v<100)eTR.value='';}
+  else {st.value='Planejada';eIR.value='';eTR.value='';}
 }
 function _atModoResumo(ehResumo){
   ['atIni','atFim','atDur','atPct','atIniReal','atFimReal','atSt'].forEach(x=>{const e=document.getElementById(x);if(e)e.disabled=ehResumo;});
