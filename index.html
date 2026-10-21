@@ -4508,7 +4508,7 @@ function salvarProjeto(){
   if(!nome||!cli){notif('Nome e cliente obrigatórios','er');return;}
   const id=parseInt(document.getElementById('pjId').value)||0;
   const p={id:id||Date.now(),nome,cliente:cli,local:document.getElementById('pjLoc').value,status:document.getElementById('pjSt').value,inicio:document.getElementById('pjIni').value,fim:document.getElementById('pjFim').value,frente:document.getElementById('pjFr').value,obs:document.getElementById('pjObs').value};
-  if(id){const i=S.projetos.findIndex(x=>x.id===id);if(i>-1)S.projetos[i]=p;}
+  if(id){const i=S.projetos.findIndex(x=>x.id===id);if(i>-1)S.projetos[i]={...S.projetos[i],...p};}
   else S.projetos.push(p);
   save(); fechar('mProjeto'); popSelects(); renderProj(); renderDash();
   log((id?'Projeto editado: ':'Projeto criado: ')+nome,'🏗️');
@@ -10391,9 +10391,12 @@ async function sbPushState(){
 }
 async function sbPullState(){
   var client=sbClient();
+  var rev0=SB.rev||0;
   var r=await client.from('app_state').select('dados').eq('id',SB_ROW_ID).maybeSingle();
   if(r.error) throw new Error('Supabase: '+r.error.message);
   if(!r.data || !r.data.dados) return false;
+  // Alteração local feita enquanto baixava: não sobrescreve (ela será enviada em seguida)
+  if((SB.rev||0)!==rev0) return false;
   window._syncingSupabase=true;
   try{
     S = {...S, ...r.data.dados};
@@ -10432,14 +10435,17 @@ async function sbFullSync(){
        o push seguinte semeia a nuvem normalmente — mesmo resultado de
        antes, só que sem risco de sobrescrever dados reais. */
     await sbPullState();
+    var revPush=SB.rev||0;
     await sbPushState();
+    if((SB.rev||0)===revPush) SB.unsynced=false;
     sbSetStatus('Sincronizado ✓','var(--gn)');
     localStorage.setItem(SK+'_sb_last_sync', new Date().toISOString());
     if(typeof notif==='function') notif('☁️ Sincronização real concluída com o Supabase.','ok');
   } finally { SB.busy=false; }
 }
 function scheduleSupabaseSync(){
-  if(window._syncingSupabase || SB.busy) return;
+  if(window._syncingSupabase) return;
+  if(SB.busy){ SB.pendingPush=true; SB.repush=true; return; }
   clearTimeout(SB.timer);
   SB.pendingPush=true;
   SB.timer=setTimeout(function(){
@@ -10447,7 +10453,12 @@ function scheduleSupabaseSync(){
     sbSession().then(function(session){
       if(!session){ SB.pendingPush=false; return; }
       SB.busy=true;
-      return sbPushState().catch(function(e){ throw e; }).finally(function(){ SB.busy=false; SB.pendingPush=false; });
+      var revPush=SB.rev||0;
+      return sbPushState().then(function(){ if((SB.rev||0)===revPush) SB.unsynced=false; }).catch(function(e){ throw e; }).finally(function(){
+        SB.busy=false; SB.pendingPush=false;
+        // Houve alteração local durante o envio: envia de novo a versão mais nova
+        if(SB.repush){ SB.repush=false; scheduleSupabaseSync(); }
+      });
     }).catch(function(e){console.error(e); SB.pendingPush=false; if(navigator.onLine){ if(typeof notif==='function') notif('⚠️ Falha na sincronização: '+e.message,'er'); } else { sbSetStatus('Offline — salvo neste dispositivo','var(--rd)'); } });
   },2500);
 }
@@ -10455,6 +10466,7 @@ function scheduleSupabaseSync(){
 // alteração do usuário para reagendar o push).
 window.addEventListener('online', function(){
   sbSetStatus('Conexão restabelecida — sincronizando...','var(--yl)');
+  if(SB.unsynced){ scheduleSupabaseSync(); return; }
   sbFullSync().then(function(){
     if(typeof notif==='function') notif('🌐 Conexão restabelecida — sincronizado com a nuvem.','ok');
   }).catch(function(e){ console.warn('Falha ao sincronizar após reconectar:',e&&e.message); });
@@ -10540,8 +10552,11 @@ async function _pullSilencioso(){
     const session = typeof sbSession==='function' ? await sbSession() : null;
     if(!session) return;
     const client = sbClient();
+    const rev0 = SB.rev||0;
     const r = await client.from('app_state').select('dados').eq('id',SB_ROW_ID).maybeSingle();
     if(r.error || !r.data || !r.data.dados) return;
+    // Algo foi salvo localmente enquanto baixava: esta cópia da nuvem já está velha
+    if((SB.rev||0)!==rev0 || SB.pendingPush || SB.busy || window._syncingSupabase) return;
     const cloud = r.data.dados;
     const modalAtivAberto = document.getElementById('mAtiv')?.classList.contains('on') || document.getElementById('mReprog')?.classList.contains('on');
     const atividadesLocais = S.atividades;
@@ -10684,7 +10699,9 @@ function sbAutoRestore(){
   var _saveOrig=save;
   save=function(){
     _saveOrig();
-    if(!window._syncingSupabase) scheduleSupabaseSync();
+    // Revisão local: qualquer download da nuvem iniciado antes deste save é descartado
+    SB.rev=(SB.rev||0)+1;
+    if(!window._syncingSupabase){ SB.unsynced=true; scheduleSupabaseSync(); }
   };
 })();
 setTimeout(sbLoadCfgUI,300);
