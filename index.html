@@ -1363,6 +1363,8 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
       <button class="btn" onclick="abrirImpressaoAtiv()">🖨️ Imprimir</button>
       <button class="btn" onclick="imprimirCronograma()" title="Imprime tabela + Gantt no estilo MS Project">📅 Cronograma</button>
       <button class="btn" onclick="abrirReprogramacoes()" title="Lista de reprogramações, motivos e impactos">📜 Reprogramações</button>
+      <button class="btn crono-ed" onclick="document.getElementById('inpImpCrono').click()" title="Cria projeto e atividades a partir de um arquivo de cronograma (.json)">📥 Importar cronograma</button>
+      <input type="file" id="inpImpCrono" accept=".json,application/json" style="display:none" onchange="importarCronogramaArquivo(this)">
       <button class="btn crono-ed" onclick="abrirFeriados()" title="Calendário de trabalho: feriados e exceções (sábado/domingo liberados)">🗓️ Calendário</button>
       <button class="btn crono-ed" id="btnLinhaBase" onclick="cronoNovaLinhaBase()" title="Grava as datas atuais como linha de base do projeto filtrado">📐 Linha de base</button>
       <span id="cronoModoInfo" style="display:none;font-size:10px;font-weight:700;padding:5px 9px;border-radius:6px;"></span>
@@ -13914,6 +13916,61 @@ function cronoNovaLinhaBase(){
     S.reprogramacoes.push({id:rid,data:new Date().toISOString(),usuario:S.currentUser||'Sistema',usuarioNome:u?u.nome:(S.currentUser||'Sistema'),projetoId:parseInt(pjId),origemId:null,origemNome:'',acao:'Nova linha de base',tipo:'linha-base',categoria:reg.categoria,motivo:reg.motivo,impactoProjetoDias:0,impactos});
     save();renderAtiv();log('Nova linha de base do projeto '+(p?p.nome:'')+' — '+reg.motivo,'📐');notif('📐 Nova linha de base gravada');
   }});
+}
+
+// ── Importação de cronograma (arquivo .json gerado a partir de planilha / MS Project) ──
+function importarCronogramaArquivo(inp){
+  if(_bloquearSeVisualizador())return;
+  const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{try{_importarCronograma(JSON.parse(rd.result));}catch(e){console.error(e);notif('Arquivo de cronograma inválido: '+e.message,'er');}};
+  rd.readAsText(f,'utf-8');
+}
+function _importarCronograma(dados){
+  if(!dados||dados.formato!=='gestaocampo-cronograma'||!Array.isArray(dados.atividades))throw new Error('formato não reconhecido');
+  const P=dados.projeto||{};
+  if(!P.nome)throw new Error('projeto sem nome');
+  let pj=S.projetos.find(x=>(x.nome||'').trim().toLowerCase()===P.nome.trim().toLowerCase());
+  if(pj){
+    const n=S.atividades.filter(a=>String(a.projetoId)===String(pj.id)).length;
+    if(!confirm('Já existe o projeto "'+pj.nome+'"'+(n?' com '+n+' atividade(s)':'')+'.\n\nOK = incluir o cronograma dentro dele\nCancelar = não importar'))return;
+    if(!_projetoPermitido(pj.id)){notif('Sem acesso a este projeto','er');return;}
+  } else {
+    if(!_podeCriarProjeto()){notif('Seu perfil não pode criar projetos','er');return;}
+    if(!confirm('Criar o projeto "'+P.nome+'" (cliente: '+(P.cliente||'—')+') com '+dados.atividades.length+' linha(s) de cronograma?'))return;
+    pj={id:Date.now(),nome:P.nome,cliente:P.cliente||'',local:P.local||'',status:P.status||'Em andamento',inicio:P.inicio||'',fim:P.fim||'',frente:P.frente||'',obs:P.obs||'',feriados:P.feriados||[],diasExtras:P.diasExtras||[],linhaBaseSalva:false};
+    S.projetos.push(pj);
+  }
+  if(P.diasExtras&&pj.diasExtras!==P.diasExtras){pj.diasExtras=pj.diasExtras||[];P.diasExtras.forEach(x=>{if(!pj.diasExtras.some(y=>y.data===x.data))pj.diasExtras.push(x);});}
+  const base=Date.now()+1;const mapa=new Map();
+  const ordemIni=S.atividades.filter(a=>String(a.projetoId)===String(pj.id)&&!a.parentId).length;
+  dados.atividades.forEach((x,i)=>mapa.set(x.ref,base+i));
+  const cal=_cronoCal(pj.id);const agora=new Date().toISOString();
+  const novas=dados.atividades.map((x,i)=>{
+    const a={id:mapa.get(x.ref),nome:x.nome,projetoId:pj.id,setor:x.setor||'',desc:x.desc||'',disciplina:x.disciplina||'',
+      inicio:x.inicio||'',fim:x.fim||'',parentId:x.pai?mapa.get(x.pai)||null:null,ordem:(x.pai?i+1:ordemIni+i+1),
+      predecessoras:(x.predecessoras||[]).filter(p=>mapa.has(p.ref)).map(p=>({id:mapa.get(p.ref),tipo:p.tipo||'TI',lag:p.lag||0,...(p.corrido?{corrido:true}:{})})),
+      responsaveis:[],status:'Planejada',pct:0,inicioReal:null,terminoReal:null,interferencia:{houve:false},
+      criadoEm:agora,_upTs:Date.now(),_upBy:S.currentUser||null};
+    if(a.inicio&&a.fim)a.duracao=a.inicio===a.fim&&x.marco?0:Math.max(1,cal.dias(a.inicio,a.fim));
+    a.baseline={inicioOriginal:a.inicio||null,fimOriginal:a.fim||null,criadoEm:agora,revisoes:[]};
+    return a;
+  });
+  const lista=S.atividades.concat(novas);
+  const r=_cronoAgendar(lista,pj.id,false);
+  if(!r.ok){notif(r.erro,'er');return;}
+  // Confere se o encadeamento reproduziu as datas do arquivo
+  const dif=dados.atividades.filter(x=>x.inicio&&x.fim).filter(x=>{const a=lista.find(y=>y.id===mapa.get(x.ref));return a&&(a.inicio!==x.inicio||a.fim!==x.fim);});
+  if(dif.length&&!confirm(dif.length+' linha(s) ficaram com datas diferentes do arquivo depois do encadeamento das predecessoras (ex.: '+dif[0].nome+').\n\nImportar mesmo assim?'))return;
+  _cronoBaseIgualAtual(lista,pj.id);
+  S.atividades=lista;
+  save();popSelects();renderProj();
+  log('Cronograma importado: '+novas.length+' linha(s) no projeto '+pj.nome+(dados.origem?' (origem: '+dados.origem+')':''),'📥');
+  notif('📥 Cronograma importado: '+novas.length+' linha(s) em "'+pj.nome+'"');
+  go('atividades');
+  const fil=document.getElementById('filAtPj');if(fil){fil.value=String(pj.id);if(typeof setPjAtual==='function')setPjAtual(fil.value);}
+  const fs=document.getElementById('filAtSt');if(fs)fs.value='';
+  renderAtiv();
 }
 
 // ── Feriados do projeto ──
