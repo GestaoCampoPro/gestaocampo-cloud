@@ -14063,10 +14063,13 @@ function _atualizarCronogramaExistente(pj,dados){
   const novasRefs=dados.atividades.filter(x=>!mapa.has(x.ref));
   let nId=Date.now()+1;novasRefs.forEach(x=>mapa.set(x.ref,nId++));
   const nVinc=dados.atividades.reduce((n,x)=>n+(x.predecessoras||[]).length,0);
-  if(!confirm('🔄 ATUALIZAR CRONOGRAMA — '+pj.nome+'\n\n• '+casadas+' atividade(s) existentes recebem estrutura e vínculos do arquivo ('+nVinc+' vínculos)\n• '+novasRefs.length+' atividade(s) nova(s) serão incluídas\n• Status, %, datas reais e responsáveis são mantidos'+(dados.atualizarDatas?'\n• Datas planejadas serão substituídas pelas do arquivo':'')+'\n\nContinuar?'))return;
+  if(!confirm('🔄 ATUALIZAR CRONOGRAMA — '+pj.nome+'\n\n• '+casadas+' atividade(s) existentes recebem estrutura e vínculos do arquivo ('+nVinc+' vínculos)\n• '+novasRefs.length+' atividade(s) nova(s) serão incluídas'+((dados.projeto&&dados.projeto.feriados&&dados.projeto.feriados.length)?'\n• '+dados.projeto.feriados.length+' feriado(s)/recesso entram no calendário do projeto':'')+'\n• Status, %, datas reais e responsáveis são mantidos'+(dados.atualizarDatas?'\n• Datas planejadas serão substituídas pelas do arquivo':'')+'\n\nContinuar?'))return;
   const cal=_cronoCal(pj.id),agora=new Date().toISOString();
   const pred=x=>(x.predecessoras||[]).filter(p=>mapa.has(p.ref)).map(p=>({id:mapa.get(p.ref),tipo:p.tipo||'TI',lag:p.lag||0,...(p.corrido?{corrido:true}:{})}));
   if(dados.projeto&&Array.isArray(dados.projeto.diasExtras)){pj.diasExtras=pj.diasExtras||[];dados.projeto.diasExtras.forEach(x=>{if(!pj.diasExtras.some(y=>y.data===x.data))pj.diasExtras.push(x);});}
+  // Feriados / recessos do arquivo entram no calendário do projeto (e deixam de ser exceção de trabalho)
+  if(dados.projeto&&Array.isArray(dados.projeto.feriados)){pj.feriados=pj.feriados||[];dados.projeto.feriados.forEach(x=>{if(!pj.feriados.some(y=>y.data===x.data))pj.feriados.push(x);});
+    if(Array.isArray(pj.diasExtras))pj.diasExtras=pj.diasExtras.filter(e=>!dados.projeto.feriados.some(f=>f.data===e.data));}
   _cronoAplicar({pjId:pj.id,origemNome:pj.nome,descricao:'Atualização do cronograma por arquivo',categoriaSugerida:'Erro de Planejamento',
     mutar:lista=>{
       dados.atividades.forEach((x,i)=>{
