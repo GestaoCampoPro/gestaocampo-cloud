@@ -2553,7 +2553,7 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
     <div style="padding:10px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.2);border-radius:8px;margin-top:10px;">
       <div style="font-size:11px;font-weight:700;color:#38bdf8;margin-bottom:6px;">📅 Cronograma (estilo MS Project)</div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;">
-        <label>Papel <select class="fi" id="prCrPapel" style="width:80px;margin:0;display:inline-block;"><option>A4</option><option>A3</option></select></label>
+        <label>Papel <select class="fi" id="prCrPapel" style="width:80px;margin:0;display:inline-block;" onchange="try{localStorage.setItem(SK+'_papelCrono',this.value)}catch(e){}"><option selected>A3</option><option>A4</option></select></label>
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="prCrBase" checked> Linha de base</label>
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="prCrReal" checked> Execução real</label>
         <button class="btn sm" style="margin-left:auto;" onclick="imprimirCronograma()">📅 Imprimir Cronograma</button>
@@ -14405,16 +14405,19 @@ function _cronoLinhas(list,{recolher=true,cabecalhos=true,totalProjeto=false}={}
 // Impressão do cronograma no estilo MS Project (tabela + Gantt, A4/A3 paisagem)
 function imprimirCronograma(){
   const fp=document.getElementById('filAtPj')?.value||'';
-  const papel=document.getElementById('prCrPapel')?.value||'A4';
+  let papelSalvo='A3';try{papelSalvo=localStorage.getItem(SK+'_papelCrono')||'A3';}catch(e){}
+  const selP=document.getElementById('prCrPapel');if(selP&&!selP.dataset.ok){selP.value=papelSalvo;selP.dataset.ok='1';}
+  const papel=selP?.value||papelSalvo;
+  const A3=papel==='A3';
   const mostrarBase=document.getElementById('prCrBase')?.checked!==false;
   const mostrarReal=document.getElementById('prCrReal')?.checked!==false;
   fechar('mPrintAtiv');
   let pjs=_projetosVisiveis().filter(p=>!fp||String(p.id)===String(fp)).map(p=>p.id);
   pjs=pjs.filter(id=>S.atividades.some(a=>String(a.projetoId)===String(id)));
   if(!pjs.length){notif('Nenhuma atividade para imprimir','wn');return;}
-  const larg=papel==='A3'?1500:1040,altPag=papel==='A3'?1040:700;
-  const colW=[30,222,86,80,80,80,32],tabW=colW.reduce((a,b)=>a+b,0);
-  const rowH=20,hdrH=32,porPag=Math.floor((altPag-hdrH-130)/rowH);
+  const larg=A3?1500:1040,altPag=A3?1060:700;
+  const colW=A3?[38,330,110,104,104,96,40]:[30,222,86,80,80,80,32],tabW=colW.reduce((a,b)=>a+b,0);
+  const hdrH=A3?36:32,disp=altPag-hdrH-(A3?155:130);
   const hojeTxt=_cronoFmtData(new Date().toISOString().slice(0,10));
   // Logos: os configurados no sistema (Config → logos); sem logo da empresa, usa o da INNOVA
 
@@ -14423,6 +14426,10 @@ function imprimirCronograma(){
     const p=S.projetos.find(x=>x.id==pj);
     const linhas=_cronoLinhas(S.atividades.filter(a=>String(a.projetoId)===String(pj)),{recolher:false,cabecalhos:false});
     const r=_cronoAgendar(S.atividades,pj,true);
+    // No A3 a altura da linha cresce até preencher a folha (22 a 30 px); no A4 fica 20 px
+    const rowH=A3?Math.max(22,Math.min(30,Math.floor(disp/Math.max(1,linhas.length)))):20;
+    const porPag=Math.max(1,Math.floor(disp/rowH));
+    const fs=rowH>=27?12:rowH>=24?11:9.5;
     const datas=[];linhas.forEach(l=>{const a=l.a;[a.inicio,a.fim,mostrarBase&&a.baseline?.inicioOriginal,mostrarBase&&a.baseline?.fimOriginal,mostrarReal&&a.inicioReal,mostrarReal&&a.terminoReal].forEach(d=>{if(d)datas.push(d);});});
     if(!datas.length)return;
     datas.sort();
@@ -14436,21 +14443,21 @@ function imprimirCronograma(){
       const xs=[0];colW.forEach(w=>xs.push(xs[xs.length-1]+w));
       const H=g.H;
       let t=`<svg xmlns="http://www.w3.org/2000/svg" width="${tabW}" height="${H}" style="display:block;font-family:Arial,sans-serif;"><rect x="0" y="0" width="${tabW}" height="${hdrH}" fill="#f8fafc"/>`;
-      ['Id','Nome da Tarefa','Dur. út./corr.','Início','Término','Predec.','%'].forEach((h,k)=>{t+=`<text x="${xs[k]+4}" y="${hdrH/2+4}" style="font-size:10px;font-weight:700;fill:#0f172a">${h}</text>`;});
+      ['Id','Nome da Tarefa','Dur. út./corr.','Início','Término','Predec.','%'].forEach((h,k)=>{t+=`<text x="${xs[k]+4}" y="${hdrH/2+4}" style="font-size:${A3?11.5:10}px;font-weight:700;fill:#0f172a">${h}</text>`;});
       fatia.forEach((l,j)=>{
-        const a=l.a,inf=l.inf,y=hdrH+j*rowH,yt=y+rowH/2+4;
+        const a=l.a,inf=l.inf,y=hdrH+j*rowH,yt=y+rowH/2+fs*0.38;
         const b=inf.projeto?'font-weight:900;':inf.resumo?'font-weight:700;':'';
         if(inf.projeto)t+=`<rect x="0" y="${y}" width="${tabW}" height="${rowH}" fill="#ede9fe"/>`;
         const cor=inf.critico&&!inf.resumo?'#b91c1c':'#0f172a';
         const nome=(' '.repeat(inf.nivel*3))+((a.duracao??1)===0&&!inf.resumo?'◆ ':'')+a.nome;
-        const lim=inf.resumo?33:40;const nomeC=nome.length>lim?nome.slice(0,lim-1)+'…':nome;
-        t+=`<text x="${xs[0]+4}" y="${yt}" style="font-size:9.5px;fill:#475569">${inf.num}</text>`
-          +`<text x="${xs[1]+4}" y="${yt}" style="font-size:9.5px;fill:${cor};${b}">${_escHtml(nomeC)}</text>`
-          +`<text x="${xs[2]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${(a.duracao??0)} / ${_cronoCorridos(a)} dias</text>`
-          +`<text x="${xs[3]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${_cronoFmtData(a.inicio)}</text>`
-          +`<text x="${xs[4]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${_cronoFmtData(a.fim)}</text>`
-          +`<text x="${xs[5]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a">${_escHtml(inf.fmtPred.length>14?inf.fmtPred.slice(0,13)+'…':inf.fmtPred)}</text>`
-          +`<text x="${xs[6]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a">${a.pct||0}%</text>`
+        const lim=A3?(inf.resumo?44:54):(inf.resumo?33:40);const nomeC=nome.length>lim?nome.slice(0,lim-1)+'…':nome;
+        t+=`<text x="${xs[0]+4}" y="${yt}" style="font-size:${fs}px;fill:#475569">${inf.num}</text>`
+          +`<text x="${xs[1]+4}" y="${yt}" style="font-size:${fs}px;fill:${cor};${b}">${_escHtml(nomeC)}</text>`
+          +`<text x="${xs[2]+4}" y="${yt}" style="font-size:${fs}px;fill:#0f172a;${b}">${(a.duracao??0)} / ${_cronoCorridos(a)} dias</text>`
+          +`<text x="${xs[3]+4}" y="${yt}" style="font-size:${fs}px;fill:#0f172a;${b}">${_cronoFmtData(a.inicio)}</text>`
+          +`<text x="${xs[4]+4}" y="${yt}" style="font-size:${fs}px;fill:#0f172a;${b}">${_cronoFmtData(a.fim)}</text>`
+          +`<text x="${xs[5]+4}" y="${yt}" style="font-size:${fs}px;fill:#0f172a">${_escHtml(inf.fmtPred.length>(A3?16:14)?inf.fmtPred.slice(0,A3?15:13)+'…':inf.fmtPred)}</text>`
+          +`<text x="${xs[6]+4}" y="${yt}" style="font-size:${fs}px;fill:#0f172a">${a.pct||0}%</text>`
           +`<line x1="0" y1="${y+rowH-.5}" x2="${tabW}" y2="${y+rowH-.5}" stroke="#e2e8f0" stroke-width=".6"/>`;
       });
       xs.slice(1,-1).forEach(xx=>{t+=`<line x1="${xx}" y1="0" x2="${xx}" y2="${H}" stroke="#cbd5e1" stroke-width=".6"/>`;});
