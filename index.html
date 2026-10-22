@@ -2285,6 +2285,24 @@ body.viewer-lock #pg-presenca .pp{pointer-events:none!important;opacity:.85;}
     <div class="fr"><div class="fg"><label class="fl">Início</label><input type="date" class="fi" id="pjIni"></div><div class="fg"><label class="fl">Término</label><input type="date" class="fi" id="pjFim"></div></div>
     <div class="fg"><label class="fl">Frente de Trabalho</label><input class="fi" id="pjFr" placeholder="Ex: CONTROLE DE CAMPO"></div>
     <div class="fg"><label class="fl">Observações</label><textarea class="fi" id="pjObs" rows="2"></textarea></div>
+    <div class="fg"><label class="fl">Logos do projeto <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--t3)">— usados no cabeçalho da impressão do cronograma deste projeto</span></label>
+      <div class="fr">
+        <div style="border:1px dashed var(--b1);border-radius:8px;padding:8px;text-align:center;">
+          <div style="font-size:10px;color:var(--t3);margin-bottom:4px;">Empresa (ex.: INNOVA)</div>
+          <div id="pjLogoEmpPv" style="height:48px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:6px;margin-bottom:6px;"></div>
+          <input type="file" id="pjLogoEmpIn" accept="image/*" style="display:none" onchange="pjCarregarLogo(this,'emp')">
+          <button type="button" class="btn xs" onclick="document.getElementById('pjLogoEmpIn').click()">📁 Escolher</button>
+          <button type="button" class="btn xs" onclick="pjRemoverLogo('emp')">✕</button>
+        </div>
+        <div style="border:1px dashed var(--b1);border-radius:8px;padding:8px;text-align:center;">
+          <div style="font-size:10px;color:var(--t3);margin-bottom:4px;">Cliente</div>
+          <div id="pjLogoCliPv" style="height:48px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:6px;margin-bottom:6px;"></div>
+          <input type="file" id="pjLogoCliIn" accept="image/*" style="display:none" onchange="pjCarregarLogo(this,'cli')">
+          <button type="button" class="btn xs" onclick="document.getElementById('pjLogoCliIn').click()">📁 Escolher</button>
+          <button type="button" class="btn xs" onclick="pjRemoverLogo('cli')">✕</button>
+        </div>
+      </div>
+    </div>
     <div class="mf"><button class="btn" onclick="fechar('mProjeto')">Cancelar</button><button class="btn prim" onclick="salvarProjeto()">💾 Salvar</button></div>
   </div>
 </div>
@@ -4489,8 +4507,10 @@ function abrirProjeto(id){
   document.getElementById('pjId').value='';
   ['pjNome','pjCli','pjLoc','pjFr','pjObs','pjIni','pjFim'].forEach(x=>document.getElementById(x).value='');
   document.getElementById('pjSt').value='Em andamento';
+  _pjLogoEdit={emp:null,cli:null};
   if(id){
     const p=S.projetos.find(x=>x.id===id);if(!p)return;
+    _pjLogoEdit={emp:p.logoEmp||null,cli:p.logoCli||null};
     document.getElementById('mPjTit').textContent='✏️ Editar Projeto';
     document.getElementById('pjId').value=p.id;
     document.getElementById('pjNome').value=p.nome;
@@ -4502,14 +4522,45 @@ function abrirProjeto(id){
     document.getElementById('pjFr').value=p.frente||'';
     document.getElementById('pjObs').value=p.obs||'';
   }
+  _pjRenderLogos();
   abrir('mProjeto');
+}
+// Logos por projeto (empresa/cliente) — reduzidos para no máx. 480 px para não pesar na sincronização
+let _pjLogoEdit={emp:null,cli:null};
+function _pjRenderLogos(){
+  [['emp','pjLogoEmpPv'],['cli','pjLogoCliPv']].forEach(([k,id])=>{
+    const el=document.getElementById(id);if(!el)return;
+    el.innerHTML=_pjLogoEdit[k]?`<img src="${_pjLogoEdit[k]}" style="max-height:44px;max-width:95%;object-fit:contain;">`:'<span style="font-size:10px;color:#94a3b8;">'+(k==='emp'?'usa o logo de Relatórios / INNOVA':'usa o logo de Relatórios')+'</span>';
+  });
+}
+function pjCarregarLogo(inp,k){
+  const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
+  const rd=new FileReader();
+  rd.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      const max=480,esc=Math.min(1,max/img.width,160/img.height);
+      const c=document.createElement('canvas');c.width=Math.round(img.width*esc);c.height=Math.round(img.height*esc);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      _pjLogoEdit[k]=c.toDataURL('image/png');_pjRenderLogos();
+    };
+    img.onerror=()=>notif('Imagem inválida','er');
+    img.src=e.target.result;
+  };
+  rd.readAsDataURL(f);
+}
+function pjRemoverLogo(k){_pjLogoEdit[k]=null;_pjRenderLogos();}
+// Logo efetivo de um projeto: o do projeto > o de Relatórios (global) > (empresa) INNOVA
+function _logoProjeto(pj,k){
+  if(k==='emp')return (pj&&pj.logoEmp)||(typeof LD!=='undefined'&&LD.ldEmp)||(S._logos&&S._logos.ldEmp)||LOGO_INNOVA_PADRAO;
+  return (pj&&pj.logoCli)||(typeof LD!=='undefined'&&LD.ldCli)||(S._logos&&S._logos.ldCli)||'';
 }
 function salvarProjeto(){
   const nome=document.getElementById('pjNome').value.trim();
   const cli=document.getElementById('pjCli').value.trim();
   if(!nome||!cli){notif('Nome e cliente obrigatórios','er');return;}
   const id=parseInt(document.getElementById('pjId').value)||0;
-  const p={id:id||Date.now(),nome,cliente:cli,local:document.getElementById('pjLoc').value,status:document.getElementById('pjSt').value,inicio:document.getElementById('pjIni').value,fim:document.getElementById('pjFim').value,frente:document.getElementById('pjFr').value,obs:document.getElementById('pjObs').value};
+  const p={id:id||Date.now(),nome,cliente:cli,local:document.getElementById('pjLoc').value,status:document.getElementById('pjSt').value,inicio:document.getElementById('pjIni').value,fim:document.getElementById('pjFim').value,frente:document.getElementById('pjFr').value,obs:document.getElementById('pjObs').value,logoEmp:_pjLogoEdit.emp||null,logoCli:_pjLogoEdit.cli||null};
   if(id){const i=S.projetos.findIndex(x=>x.id===id);if(i>-1)S.projetos[i]={...S.projetos[i],...p};}
   else S.projetos.push(p);
   save(); fechar('mProjeto'); popSelects(); renderProj(); renderDash();
@@ -6102,8 +6153,9 @@ function renderAtiv(){
     const editandoBadge = typeof _presencaBadgeEditando==='function' ? _presencaBadgeEditando(a.id) : '';
     const marco=!inf.resumo&&(a.duracao??1)===0;
     const tog=inf.resumo?`<span onclick="cronoToggle(${a.id})" title="Recolher/expandir sublinhas" style="cursor:pointer;color:var(--t2);width:14px;display:inline-block;font-size:12px;">${_cronoRecolhidos.has(a.id)?'▸':'▾'}</span>`:'<span style="width:12px;display:inline-block"></span>';
+    const confBadge=inf.conflito&&!inf.resumo?`<span class="badge" title="Início real em ${fd(inf.conflito.real)}, mas pelas predecessoras esta atividade só pode começar em ${fd(inf.conflito.previsto)}. Confira o início real (ou o % lançado) ou os vínculos." style="background:rgba(234,179,8,.18);color:#eab308;font-size:9px;padding:1px 5px;margin-left:4px;border:1px solid rgba(234,179,8,.45);">⚠️ Início real antes da predecessora</span>`:'';
     const critBadge=inf.critico&&!inf.resumo?'<span class="badge" title="Caminho crítico: folga zero — qualquer atraso atrasa o projeto" style="background:rgba(239,68,68,.15);color:#ef4444;font-size:9px;padding:1px 5px;margin-left:4px;border:1px solid rgba(239,68,68,.4);">⚡ Crítica</span>':'';
-    const nomeCell=`<div style="display:flex;align-items:center;gap:4px;padding-left:${inf.nivel*16}px;">${tog}${marco?'<span title="Marco" style="color:var(--ac)">◆</span>':''}<span style="${inf.resumo?'font-weight:800;':''}">${_escHtml(a.nome)}</span></div><div style="padding-left:${inf.nivel*16+16}px">${intBadge}${atrasoBadge}${baselineBadge}${critBadge}${editandoBadge}</div>`;
+    const nomeCell=`<div style="display:flex;align-items:center;gap:4px;padding-left:${inf.nivel*16}px;">${tog}${marco?'<span title="Marco" style="color:var(--ac)">◆</span>':''}<span style="${inf.resumo?'font-weight:800;':''}">${_escHtml(a.nome)}</span></div><div style="padding-left:${inf.nivel*16+16}px">${intBadge}${atrasoBadge}${baselineBadge}${critBadge}${confBadge}${editandoBadge}</div>`;
     const statusCell=inf.resumo
       ? `<span class="badge ${sc[a.status]||'bb'}" style="font-size:10px;" title="Consolidado das sublinhas">${a.status}</span>`
       : `<select class="fi" style="margin:0;padding:3px 4px;font-size:10px;width:104px" onchange="mudaStatusAtiv(${a.id},this.value)">${['Planejada','Em andamento','Concluída','Atrasada','Pausada'].map(s=>`<option ${a.status===s?'selected':''}>${s}</option>`).join('')}</select>`;
@@ -13489,9 +13541,9 @@ function _cronoAgendar(lista,pjId,soRollup){
       const D=_cronoDur(a,cal);
       const preds=[...(a.predecessoras||[])];
       _cronoAncestrais(info,id).forEach(pid=>preds.push(...(porId.get(pid)?.predecessoras||[])));
-      // Só depois da linha de base salva a atividade iniciada/concluída fica "travada" (como no MS Project)
-      const fixo=travado&&(!!a.inicioReal||a.status==='Concluída');
-      let S0=a.inicio?cal.ceil(a.inicio):null,agendado=false;
+      // Só depois da linha de base salva e só a concluída fica travada; em andamento continua seguindo os vínculos
+      const fixo=travado&&(a.status==='Concluída'||!!a.terminoReal);
+      let S0=a.inicio?cal.ceil(a.inicio):null,agendado=false,limPred=-Infinity;
       if(preds.length){
         let lim=-Infinity;
         for(const p of preds){
@@ -13514,6 +13566,7 @@ function _cronoAgendar(lista,pjId,soRollup){
           else s=(predMarco?pv.eS:pv.eF+1)+lag;
           lim=Math.max(lim,s);
         }
+        limPred=lim;
         if(lim>-Infinity&&!fixo&&!soRollup){
           if(a.inicioMin)lim=Math.max(lim,cal.ceil(a.inicioMin));
           S0=lim;agendado=true;
@@ -13530,7 +13583,11 @@ function _cronoAgendar(lista,pjId,soRollup){
         let F=(agendado||preencher)?S0+Math.max(D,1)-1:(a.fim?cal.floor(a.fim):S0+Math.max(D,1)-1);
         if(D===0&&(agendado||preencher))F=S0;
         if(F<S0)F=S0;
-        r={S:S0,F,D,agendado:agendado||preencher,eS:(travado&&a.inicioReal)?cal.ceil(a.inicioReal):S0,eF:(travado&&a.terminoReal)?cal.floor(a.terminoReal):F};
+        const iR=a.inicioReal?cal.ceil(a.inicioReal):null;
+        // Início real anterior ao que as predecessoras permitem: dado incoerente (não concluída), avisa na lista
+        const conf=!fixo&&iR!=null&&limPred>-Infinity&&iR<limPred&&a.status!=='Concluída'&&!a.terminoReal;
+        r={S:S0,F,D,agendado:agendado||preencher,eS:(travado&&iR!=null&&!conf)?iR:S0,eF:(travado&&a.terminoReal)?cal.floor(a.terminoReal):F,
+          conflito:conf?{real:a.inicioReal,previsto:cal.date(Math.max(limPred,S0))}:null};
       }
     }
     val.set(id,r);estado.set(id,2);return r;
@@ -13606,6 +13663,7 @@ function _cronoAgendar(lista,pjId,soRollup){
     const v=val.get(a.id),inf=info.get(a.id);
     inf.folga=LF.get(a.id)-v.eF;
     inf.critico=inf.folga<=0&&a.status!=='Concluída';
+    inf.conflito=v.conflito||null;
   });
   seq.forEach(a=>{const inf=info.get(a.id);if(inf.resumo)inf.critico=_cronoDescendentes(info,a.id).some(x=>info.get(x).critico);});
   return {ok:true,T,val,cal};
@@ -14359,8 +14417,7 @@ function imprimirCronograma(){
   const rowH=20,hdrH=32,porPag=Math.floor((altPag-hdrH-130)/rowH);
   const hojeTxt=_cronoFmtData(new Date().toISOString().slice(0,10));
   // Logos: os configurados no sistema (Config → logos); sem logo da empresa, usa o da INNOVA
-  const logoEmp=(typeof LD!=='undefined'&&LD.ldEmp)||(S._logos&&S._logos.ldEmp)||LOGO_INNOVA_PADRAO;
-  const logoCli=(typeof LD!=='undefined'&&LD.ldCli)||(S._logos&&S._logos.ldCli)||'';
+
   let paginas=[];
   pjs.forEach(pj=>{
     const p=S.projetos.find(x=>x.id==pj);
@@ -14386,7 +14443,7 @@ function imprimirCronograma(){
         if(inf.projeto)t+=`<rect x="0" y="${y}" width="${tabW}" height="${rowH}" fill="#ede9fe"/>`;
         const cor=inf.critico&&!inf.resumo?'#b91c1c':'#0f172a';
         const nome=(' '.repeat(inf.nivel*3))+((a.duracao??1)===0&&!inf.resumo?'◆ ':'')+a.nome;
-        const nomeC=nome.length>44?nome.slice(0,43)+'…':nome;
+        const nomeC=nome.length>40?nome.slice(0,39)+'…':nome;
         t+=`<text x="${xs[0]+4}" y="${yt}" style="font-size:9.5px;fill:#475569">${inf.num}</text>`
           +`<text x="${xs[1]+4}" y="${yt}" style="font-size:9.5px;fill:${cor};${b}">${_escHtml(nomeC)}</text>`
           +`<text x="${xs[2]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${(a.duracao??0)} / ${_cronoCorridos(a)} dias</text>`
@@ -14416,7 +14473,7 @@ function imprimirCronograma(){
     @media print{.no-print{display:none}.pag{margin:0;border-color:#64748b}}
     @media screen{body{background:#e2e8f0;padding:10px}.pag{background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)}}
     </style></head><body><div class="no-print"><button class="print-btn" onclick="window.print()">🖨️ Imprimir Cronograma</button></div>
-    ${paginas.map((pg,i)=>`<div class="pag"><div class="tit"><span class="lg">${logoEmp?`<img src="${logoEmp}" alt="">`:''}</span><span class="tt"><b>📅 Cronograma — ${_escHtml(pg.pj?.nome||'')}</b>${pg.pj?.cliente?`<br><span style="font-size:10px;color:#475569">Cliente: ${_escHtml(pg.pj.cliente)}</span>`:''}</span><span class="lg r">${logoCli?`<img src="${logoCli}" alt="">`:''}<span style="font-size:10px;color:#475569;white-space:nowrap">Emitido em ${hojeTxt}</span></span></div><div class="corpo">${pg.html}</div>${legenda.replace('{PJ}',_escHtml(pg.pj?.nome||''))}<div class="rod">Página ${i+1} de ${paginas.length}</div></div>`).join('')}
+    ${paginas.map((pg,i)=>`<div class="pag"><div class="tit"><span class="lg"><img src="${_logoProjeto(pg.pj,'emp')}" alt=""></span><span class="tt"><b>📅 Cronograma — ${_escHtml(pg.pj?.nome||'')}</b>${pg.pj?.cliente?`<br><span style="font-size:10px;color:#475569">Cliente: ${_escHtml(pg.pj.cliente)}</span>`:''}</span><span class="lg r">${_logoProjeto(pg.pj,'cli')?`<img src="${_logoProjeto(pg.pj,'cli')}" alt="">`:''}<span style="font-size:10px;color:#475569;white-space:nowrap">Emitido em ${hojeTxt}</span></span></div><div class="corpo">${pg.html}</div>${legenda.replace('{PJ}',_escHtml(pg.pj?.nome||''))}<div class="rod">Página ${i+1} de ${paginas.length}</div></div>`).join('')}
     <script>setTimeout(function(){window.print();},500);<\/script></body></html>`;
   const w=window.open('','_blank');
   if(!w){notif('Popup bloqueado. Permita popups para imprimir.','wn');return;}
