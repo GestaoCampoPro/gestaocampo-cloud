@@ -14285,7 +14285,7 @@ function _cronoSvg(linhas,o){
     if(marca||i===0){
       s+=`<line x1="${i*dayW}" y1="0" x2="${i*dayW}" y2="${H}" style="stroke:${pal.grade};stroke-width:.6"/>`;
       const lbl=semanal?`${d}/${CRONO_MESES[+m-1]}/${y.slice(2)}`:`${CRONO_MESES[+m-1]}/${y.slice(2)}`;
-      s+=`<text x="${i*dayW+3}" y="${hdrH/2-3}" style="fill:${pal.texto2};font-size:9px;">${lbl}</text>`;
+      if(i*dayW+46<=W)s+=`<text x="${i*dayW+3}" y="${hdrH/2-3}" style="fill:${pal.texto2};font-size:9px;">${lbl}</text>`;
     }
     if(dayW>=9)s+=`<text x="${i*dayW+dayW/2}" y="${hdrH-4}" text-anchor="middle" style="fill:${pal.texto2};font-size:${Math.min(9,dayW*.7)}px;">${dayW>=18?d:'DSTQQSS'[dw]}</text>`;
   }
@@ -14412,7 +14412,7 @@ function imprimirCronograma(){
   let pjs=_projetosVisiveis().filter(p=>!fp||String(p.id)===String(fp)).map(p=>p.id);
   pjs=pjs.filter(id=>S.atividades.some(a=>String(a.projetoId)===String(id)));
   if(!pjs.length){notif('Nenhuma atividade para imprimir','wn');return;}
-  const larg=papel==='A3'?1560:1080,altPag=papel==='A3'?1040:700;
+  const larg=papel==='A3'?1500:1040,altPag=papel==='A3'?1040:700;
   const colW=[30,222,86,80,80,80,32],tabW=colW.reduce((a,b)=>a+b,0);
   const rowH=20,hdrH=32,porPag=Math.floor((altPag-hdrH-130)/rowH);
   const hojeTxt=_cronoFmtData(new Date().toISOString().slice(0,10));
@@ -14426,10 +14426,10 @@ function imprimirCronograma(){
     const datas=[];linhas.forEach(l=>{const a=l.a;[a.inicio,a.fim,mostrarBase&&a.baseline?.inicioOriginal,mostrarBase&&a.baseline?.fimOriginal,mostrarReal&&a.inicioReal,mostrarReal&&a.terminoReal].forEach(d=>{if(d)datas.push(d);});});
     if(!datas.length)return;
     datas.sort();
-    let mn=_isoAdd(datas[0],-1),mx=_isoAdd(datas[datas.length-1],3);
+    let mn=_isoAdd(datas[0],-1),mx=_isoAdd(datas[datas.length-1],12);
     while(_isoDow(mn)!==0)mn=_isoAdd(mn,-1);
     const days=_isoDiff(mn,mx)+1;
-    const gW=larg-tabW,dayW=gW/days;
+    const gW=larg-tabW-3,dayW=gW/days;
     for(let i=0;i<linhas.length;i+=porPag){
       const fatia=linhas.slice(i,i+porPag);
       const g=_cronoSvg(fatia,{pal:CRONO_PAL_PRINT,rowH,hdrH,mn,days,dayW,cal:r.cal,baseline:mostrarBase,real:mostrarReal,rotulos:true,idp:'pg'+paginas.length});
@@ -14443,7 +14443,7 @@ function imprimirCronograma(){
         if(inf.projeto)t+=`<rect x="0" y="${y}" width="${tabW}" height="${rowH}" fill="#ede9fe"/>`;
         const cor=inf.critico&&!inf.resumo?'#b91c1c':'#0f172a';
         const nome=(' '.repeat(inf.nivel*3))+((a.duracao??1)===0&&!inf.resumo?'◆ ':'')+a.nome;
-        const nomeC=nome.length>40?nome.slice(0,39)+'…':nome;
+        const lim=inf.resumo?33:40;const nomeC=nome.length>lim?nome.slice(0,lim-1)+'…':nome;
         t+=`<text x="${xs[0]+4}" y="${yt}" style="font-size:9.5px;fill:#475569">${inf.num}</text>`
           +`<text x="${xs[1]+4}" y="${yt}" style="font-size:9.5px;fill:${cor};${b}">${_escHtml(nomeC)}</text>`
           +`<text x="${xs[2]+4}" y="${yt}" style="font-size:9.5px;fill:#0f172a;${b}">${(a.duracao??0)} / ${_cronoCorridos(a)} dias</text>`
@@ -14464,8 +14464,8 @@ function imprimirCronograma(){
     <tr><td><span class="sw thin" style="background:rgba(148,163,184,.6)"></span>Base no prazo</td><td><span class="sw thin" style="background:rgba(34,197,94,.7)"></span>Base antecipada</td><td><span class="sw thin" style="background:rgba(244,63,94,.7)"></span>Base reprogramada (+)</td><td><span class="sw thin" style="background:rgba(245,158,11,.7)"></span>Em risco</td><td><span class="sw thin" style="background:repeating-linear-gradient(45deg,#22c55e,#22c55e 3px,#16a34a 3px,#16a34a 6px)"></span>Execução real</td></tr></table>`;
   const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Cronograma</title><style>
     @page{size:${papel} landscape;margin:7mm}*{box-sizing:border-box}body{margin:0;background:#fff;font-family:Arial,sans-serif;color:#0f172a}
-    .pag{width:${larg}px;margin:0 auto 14px;border:1px solid #94a3b8;page-break-after:always;break-after:page}.pag:last-child{page-break-after:auto;break-after:auto}
-    .tit{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 10px;border-bottom:1px solid #94a3b8;font-size:13px}.tit .tt{flex:1;text-align:center;line-height:1.25}.tit .lg{min-width:150px;display:flex;align-items:center;gap:8px}.tit .lg.r{justify-content:flex-end}.tit img{max-height:40px;max-width:150px;object-fit:contain}.corpo{display:flex;border-bottom:1px solid #94a3b8}
+    .pag{width:${larg}px;max-width:100%;overflow:hidden;margin:0 auto 14px;border:1px solid #94a3b8;page-break-after:always;break-after:page}.pag:last-child{page-break-after:auto;break-after:auto}
+    .tit{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 10px;border-bottom:1px solid #94a3b8;font-size:13px}.tit .tt{flex:1;text-align:center;line-height:1.25}.tit .lg{min-width:150px;display:flex;align-items:center;gap:8px}.tit .lg.r{justify-content:flex-end}.tit img{max-height:40px;max-width:150px;object-fit:contain}.corpo{display:flex;border-bottom:1px solid #94a3b8;overflow:hidden}.gan{overflow:hidden;flex:1;min-width:0}
     .tab{border-right:1px solid #94a3b8}.leg{width:100%;border-collapse:collapse;font-size:9.5px}.leg td{padding:3px 8px;white-space:nowrap}.leg .pj{border-right:1px solid #94a3b8;width:190px;font-size:10.5px;vertical-align:middle}
     .sw{display:inline-block;width:28px;height:9px;margin-right:6px;vertical-align:middle;border-radius:2px}.sw.thin{height:5px}.dm{display:inline-block;width:28px;text-align:center;margin-right:6px}
     .ln{display:inline-block;width:28px;height:0;border-top:1.5px solid #2563eb;margin-right:6px;vertical-align:middle}.rod{text-align:center;font-size:10px;padding:4px;border-top:1px solid #94a3b8}
