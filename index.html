@@ -1218,6 +1218,10 @@ body.light-mode .ov{background:rgba(16,18,24,.30)}
   box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.05);border-radius:16px;animation:gcModalIn .18s ease-out}
 @keyframes gcModalIn{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
 .modal::before{display:none}
+/* .obox (modal de viagem) não tinha estilo no original e ficava transparente — só aparência */
+.obox{--modal-bg:color-mix(in srgb,var(--surface-1) 55%,var(--surface-2));background:var(--modal-bg);border:1px solid var(--border-strong);
+  border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.05)}
+body.light-mode .obox{background:var(--surface-1);box-shadow:0 24px 60px rgba(16,18,24,.18)}
 .oh,.mh,body.light-mode .mh{background:transparent}
 .of,.mf,body.light-mode .mf{background:transparent}
 .oht,.mht{font-weight:500;letter-spacing:-.02em}
@@ -1260,6 +1264,110 @@ body.light-mode .notif{box-shadow:0 12px 32px rgba(16,18,24,.14)}
 
 @media(max-width:480px){.login-title{font-size:34px}}
 @media print{body{background:#fff!important}}
+
+/* ═══ GestãoCampo Pro — Modo "Vidro" (ativo só com html[data-glass]) ═══ */
+html[data-glass]{
+  --glass:rgba(255,255,255,.07);--glass-strong:rgba(255,255,255,.12);--glass-hover:rgba(255,255,255,.10);
+  --glass-border:rgba(255,255,255,.14);--glass-modal:rgba(8,30,38,.88);--glass-input:rgba(0,0,0,.20);
+  --glass-blur:saturate(150%) blur(18px);
+  --glass-shadow:0 10px 30px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.10);
+  --font-sans:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;--font-display:'Inter',sans-serif;
+}
+html[data-glass="aurora"]{--aurora:
+  radial-gradient(900px 620px at 12% 8%, rgba(45,212,191,.34), transparent 62%),
+  radial-gradient(820px 620px at 88% 18%, rgba(56,132,246,.30), transparent 62%),
+  radial-gradient(900px 720px at 55% 105%, rgba(16,185,129,.22), transparent 62%),
+  linear-gradient(160deg,#04161C 0%,#072530 50%,#061A26 100%)}
+html[data-glass="noturno"]{--glass-modal:rgba(10,16,32,.90);--aurora:
+  radial-gradient(900px 620px at 10% 0%, rgba(37,99,235,.32), transparent 62%),
+  radial-gradient(800px 600px at 90% 25%, rgba(14,165,233,.24), transparent 62%),
+  radial-gradient(900px 700px at 50% 110%, rgba(56,189,248,.14), transparent 62%),
+  linear-gradient(160deg,#050812 0%,#0A1020 55%,#060A16 100%)}
+html[data-glass="claro"]{
+  --glass:rgba(255,255,255,.55);--glass-strong:rgba(255,255,255,.75);--glass-hover:rgba(255,255,255,.66);
+  --glass-border:rgba(255,255,255,.85);--glass-modal:rgba(255,255,255,.93);--glass-input:rgba(255,255,255,.75);
+  --glass-shadow:0 10px 30px rgba(14,34,40,.08), inset 0 1px 0 rgba(255,255,255,.9);
+  --aurora:
+  radial-gradient(900px 620px at 10% 5%, rgba(94,234,212,.45), transparent 62%),
+  radial-gradient(820px 620px at 90% 15%, rgba(147,197,253,.50), transparent 62%),
+  radial-gradient(900px 720px at 50% 110%, rgba(167,243,208,.40), transparent 62%),
+  linear-gradient(160deg,#EAF4F6 0%,#EEF3FA 55%,#EAF5F1 100%)}
+
+html[data-glass] body,html[data-glass] body.light-mode{background:var(--aurora)!important;background-attachment:fixed!important;font-family:var(--font-sans)}
+
+/* Superfícies de vidro */
+html[data-glass] .card,html[data-glass] .stat,html[data-glass] .tw,html[data-glass] .scc,html[data-glass] #dkKpiGrid > div,
+html[data-glass] body.light-mode .card,html[data-glass] body.light-mode .stat,html[data-glass] body.light-mode .tw{
+  background:var(--glass)!important;border:1px solid var(--glass-border)!important;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--glass-shadow)!important}
+html[data-glass] .card,html[data-glass] .stat,html[data-glass] .scc{border-radius:20px}
+html[data-glass] .tw{border-radius:16px}
+html[data-glass] #dkKpiGrid > div{border-radius:16px!important}
+html[data-glass] .stat{transition:transform .25s cubic-bezier(.2,.8,.2,1), background .25s}
+html[data-glass] .stat:hover{transform:translateY(-5px);background:var(--glass-hover)!important}
+html[data-glass] .sch{background:transparent}
+
+/* Menu lateral flutuante e topo de vidro */
+html[data-glass] #sb,html[data-glass] body.light-mode #sb{background:var(--glass)!important;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);border-radius:20px;margin:12px 0 12px 12px;box-shadow:var(--glass-shadow)}
+html[data-glass] .nb{border-radius:12px}
+html[data-glass] .nb.on,html[data-glass] body.light-mode .nb.on{background:var(--glass-strong);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+html[data-glass] .sbf,html[data-glass] .sbh{background:transparent}
+html[data-glass] .tb,html[data-glass] body.light-mode .tb{background:var(--glass)!important;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-bottom:1px solid var(--glass-border);margin:12px 12px 0;border-radius:18px;border:1px solid var(--glass-border)}
+
+/* Tipografia do vídeo: Inter, títulos e números em negrito */
+html[data-glass] .tbtit{font-weight:700;letter-spacing:-.03em;font-size:18px}
+html[data-glass] .sv{font-weight:700;letter-spacing:-.03em}
+html[data-glass] #dkKpiGrid [style*="font-weight:800"]{font-weight:700!important}
+html[data-glass] .ct{font-weight:600}
+html[data-glass] .sbt{font-weight:700}
+html[data-glass] .login-title,html[data-glass] .lform-title{font-weight:700;letter-spacing:-.035em}
+html[data-glass] .oht,html[data-glass] .mht{font-weight:600}
+
+/* Pílulas */
+html[data-glass] .btn{border-radius:999px;background:var(--glass)!important;border-color:var(--glass-border)!important;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+html[data-glass] .btn:hover{background:var(--glass-strong)!important}
+html[data-glass] .prim,html[data-glass] .prim:hover{background:var(--accent)!important;color:var(--on-accent)!important;border-color:transparent!important}
+html[data-glass] .succ,html[data-glass] .succ:hover{background:var(--gn)!important;color:#05150F!important;border-color:transparent!important}
+html[data-glass] .dang,html[data-glass] .dang:hover{background:var(--rd)!important;color:#fff!important;border-color:transparent!important}
+html[data-glass] .tabs{background:var(--glass);border-color:var(--glass-border);border-radius:999px}
+html[data-glass] .tab{border-radius:999px}
+html[data-glass] .tab.on{background:var(--glass-strong)}
+html[data-glass] .badge,html[data-glass] .chip,html[data-glass] .tag{border-radius:999px}
+html[data-glass] #thmSw button{border-radius:999px!important;background:var(--glass)!important}
+
+/* Campos */
+html[data-glass] .fi,html[data-glass] body.light-mode .fi,html[data-glass] .srch,html[data-glass] body.light-mode .srch{
+  background:var(--glass-input)!important;border-color:var(--glass-border)!important;border-radius:12px}
+
+/* Tabelas */
+html[data-glass] .tw th{background:transparent;color:var(--text-2)}
+html[data-glass] #pg-atividades .card>.tw thead th{background:var(--surface-2)}
+html[data-glass] #pg-atividades .card>.tw tbody td:last-child{background:var(--surface-1)}
+html[data-glass] .tw tbody tr:hover td{background:var(--glass)}
+
+/* Camadas flutuantes: vidro mais opaco para leitura */
+html[data-glass] .obox,html[data-glass] body.light-mode .obox,html[data-glass] .ob,html[data-glass] .modal,html[data-glass] body.light-mode .ob,html[data-glass] body.light-mode .modal,html[data-glass] .notif{
+  background:var(--glass-modal)!important;backdrop-filter:saturate(150%) blur(24px);-webkit-backdrop-filter:saturate(150%) blur(24px);
+  border-color:var(--glass-border)!important;border-radius:22px}
+html[data-glass] .ov{background:rgba(2,10,14,.35)}
+html[data-glass] .modal-section{background:var(--glass);border-color:var(--glass-border);border-radius:14px}
+
+/* Login */
+html[data-glass] .login-left,html[data-glass] body.light-mode .login-left{background:transparent!important;border-right:1px solid var(--glass-border)}
+html[data-glass] .login-right,html[data-glass] body.light-mode .login-right{background:transparent!important;border-left:0}
+html[data-glass] .login-form-wrap{background:var(--glass);border:1px solid var(--glass-border);border-radius:24px;padding:32px;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);box-shadow:var(--glass-shadow)}
+html[data-glass] .login-features{border-top:0;gap:10px}
+html[data-glass] .login-feature{background:var(--glass);border:1px solid var(--glass-border);border-radius:16px;padding:14px 16px;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+html[data-glass] .lbtn{border-radius:999px}
+
+@media(max-width:900px){html[data-glass] #sb{margin:0;border-radius:0}html[data-glass] .tb{margin:0;border-radius:0}}
+@media(prefers-reduced-motion:reduce){html[data-glass] .stat:hover{transform:none}}
+@media print{html[data-glass] body{background:#fff!important}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
@@ -16123,6 +16231,10 @@ initViagens();
   var C = {gn:'#15803D',rd:'#DC2626',yl:'#B45309',bl:'#0369A1'};      // semânticas claras
   function T(o, sem){ for (var k in sem) if (!(k in o)) o[k] = sem[k]; return o; }
   var P = {
+    // ── Vidro (padrão): fundo aurora + cards de vidro fosco (liga html[data-glass]) ──
+    'vidro':      T({lbl:'Vidro Aurora',  glass:'aurora', bg:'#051B22',bg2:'#0A2832',bg3:'#10343F',s3:'#174250',s4:'#205466',ac:'#5EEAD4',soft:'#99F6E4',on:'#042F2E',t1:'#F2FBFB',t2:'#A7C4C8',t3:'#6E8E94',t4:'#4A6A70',gn:'#34D399',rd:'#FB7185',yl:'#FBBF24'}, D),
+    'vidro-noite':T({lbl:'Vidro Noturno', glass:'noturno',bg:'#060914',bg2:'#0C1222',bg3:'#131B30',s3:'#1B2540',s4:'#263252',ac:'#7DD3FC',soft:'#BAE6FD',on:'#062235',t1:'#EEF3FF',t2:'#9DA9C4',t3:'#66718C',t4:'#46506A',gn:'#34D399',rd:'#FB7185',yl:'#FBBF24'}, D),
+    'vidro-claro':T({lbl:'Vidro Claro',   glass:'claro',  light:true,bg:'#EAF3F5',bg2:'#FFFFFF',bg3:'#EEF5F7',s3:'#DDE9EC',s4:'#C7D8DC',ac:'#0F9D8F',soft:'#0B7D72',t1:'#0E2228',t2:'#4E666C',t3:'#8AA0A5',t4:'#B8C8CC'}, C),
     // ── Escuros: base neutra + um único acento ──
     dark:   T({lbl:'Escuro Premium',   bg:'#08090C',bg2:'#0F1115',bg3:'#171A21',s3:'#20242D',s4:'#2C313C',ac:'#4C9AFF',soft:'#8CBEFF',t1:'#ECEDEF',t2:'#9198A5',t3:'#5C6270',t4:'#3D424C'}, D),
     blue:   T({lbl:'Marinho Premium',  bg:'#060A12',bg2:'#0B111C',bg3:'#121A28',s3:'#1A2436',s4:'#253147',ac:'#6EA8FE',soft:'#A5C8FF',t1:'#E8EEF7',t2:'#8C9AB0',t3:'#56637A',t4:'#38425A'}, D),
@@ -16137,7 +16249,8 @@ initViagens();
     peach:  T({lbl:'Areia Premium',    light:true,bg:'#F5F2EC',bg2:'#FFFDF9',bg3:'#EEE8DE',s3:'#E4DCCF',s4:'#D2C7B6',ac:'#9A5B2E',soft:'#834B24',t1:'#241C15',t2:'#6E6155',t3:'#A3968A',t4:'#C9BEB2',rd:'#C2410C',yl:'#B7791F'}, C),
     sky:    T({lbl:'Céu Premium',      light:true,bg:'#F1F5FB',bg2:'#FFFFFF',bg3:'#E7EEF8',s3:'#DAE4F2',s4:'#C3D2E8',ac:'#2563EB',soft:'#1D4FC4',t1:'#0E1B2E',t2:'#4E5F78',t3:'#8A9AB2',t4:'#B9C6D8'}, C)
   };
-  var ALIAS = {navy:'dark', claro:'minimal', escuro:'dark'};
+  // Tema Automático (claro de dia / escuro à noite) usa a família Vidro, que é o padrão.
+  var ALIAS = {navy:'vidro-noite', claro:'vidro-claro', escuro:'vidro-noite'};
   window.GC_TEMAS_PREMIUM = P;
 
   function rgba(hex, a){ var h = hex.replace('#',''); return 'rgba('+parseInt(h.substr(0,2),16)+','+parseInt(h.substr(2,2),16)+','+parseInt(h.substr(4,2),16)+','+a+')'; }
@@ -16177,6 +16290,7 @@ initViagens();
     for (var k in v) s(k, v[k]);
     b.style.background = ''; b.style.backgroundAttachment = '';   // o original pinta o "Esmeralda" com degradê no body
     b.classList.toggle('light-mode', !!p.light);
+    if (p.glass) document.documentElement.setAttribute('data-glass', p.glass); else document.documentElement.removeAttribute('data-glass');
     var mode = p.light ? 'light' : 'dark';
     b.setAttribute('data-theme-mode', mode); document.documentElement.setAttribute('data-theme-mode', mode);
     var meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute('content', p.bg);
@@ -16192,21 +16306,48 @@ initViagens();
         var i = THEMES.findIndex(function(t){ return t.light; });
         THEMES.splice(i < 0 ? THEMES.length : i, 0, {id:'onix', lbl:P.onix.lbl, bg:P.onix.ac, light:false});
       }
+      // Temas de vidro no início da lista (o primeiro é o padrão do ciclo)
+      ['vidro-claro','vidro-noite','vidro'].forEach(function(id){
+        if (!THEMES.some(function(t){ return t.id === id; })) THEMES.unshift({id:id, lbl:P[id].lbl, bg:P[id].ac, light:!!P[id].light});
+      });
     }
   } catch(e) {}
 
   // Envolve o setTheme original: ele roda inteiro e, em seguida, a paleta Premium.
   if (typeof window.setTheme === 'function' && !window.setTheme._premium) {
     var original = window.setTheme;
-    var envolvido = function(t){ var r = original.apply(this, arguments); try { aplicarPremium(t); } catch(e) {} return r; };
+    // Migração única para o novo padrão: só quando o sistema RESTAURA o tema salvo
+    // (dentro do init, no login). Quem tinha o padrão anterior ('dark') passa para 'vidro'
+    // uma vez; escolhas feitas pelo usuário (cliques) nunca são convertidas.
+    var envolvido = function(t){
+      var args = Array.prototype.slice.call(arguments);
+      try {
+        if (restaurando && !localStorage.getItem(MIGR) && (t === 'dark' || t === 'navy')) args[0] = t = 'vidro';
+      } catch(e) {}
+      var r = original.apply(this, args); try { aplicarPremium(t); } catch(e) {} return r;
+    };
     envolvido._premium = true;
     window.setTheme = envolvido;
+  }
+  var MIGR = 'gc_tema_vidro_migrado', restaurando = false;
+  // Envolve o init original só para saber quando ele está restaurando o tema salvo.
+  if (typeof window.init === 'function' && !window.init._premium) {
+    var initOriginal = window.init;
+    var initEnvolvido = function(){
+      restaurando = true;
+      try { return initOriginal.apply(this, arguments); }
+      finally { restaurando = false; try { localStorage.setItem(MIGR, '1'); } catch(e) {} }
+    };
+    initEnvolvido._premium = true;
+    window.init = initEnvolvido;
   }
 
   // Antes do login (e para quem nunca escolheu tema) também vale o visual Premium.
   function inicial(){
     var id = null; try { id = localStorage.getItem((typeof SK !== 'undefined' ? SK : '') + '_theme'); } catch(e) {}
-    aplicarPremium(id && (P[id] || ALIAS[id]) ? id : 'dark');
+    var migrado = null; try { migrado = localStorage.getItem('gc_tema_vidro_migrado'); } catch(e) {}
+    if (!migrado && (id === 'dark' || id === 'navy')) id = 'vidro';   // só a aparência antes do login; quem salva é o setTheme
+    aplicarPremium(id && (P[id] || ALIAS[id]) ? id : 'vidro');
     try { if (typeof buildThemes === 'function') buildThemes(); } catch(e) {}
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inicial); else inicial();
