@@ -1630,10 +1630,11 @@ html[data-glass] .rs-opt{background:var(--glass-strong);border-color:var(--glass
 
   <!-- COLABORADORES -->
   <div class="pg" id="pg-colaboradores">
-    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
-      <div class="srch" style="flex:1;"><span>🔍</span><input id="srCol" placeholder="Buscar..." oninput="Utils.debounce(renderCol, 300)()"></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
+      <div class="srch" style="flex:1;min-width:200px;"><span>🔍</span><input id="srCol" placeholder="Buscar..." oninput="Utils.debounce(renderCol, 300)()"></div>
       <select class="fi" style="width:170px;margin:0;" id="filColPj" onchange="setPjAtual(this.value);renderCol()"><option value="">Todos projetos</option></select>
       <select class="fi" style="width:160px;margin:0;" id="filColFunc" onchange="renderCol()"><option value="">Todas funções</option></select>
+      <select class="fi" style="width:150px;margin:0;" id="filColSt" onchange="try{localStorage.setItem('gc_filColSt',this.value)}catch(e){};renderCol()" title="Filtrar por status do colaborador"><option value="">Todos status</option><option value="Ativo">Ativo</option><option value="Afastado">Afastado</option><option value="Férias">Férias</option><option value="Desligado">Desligado</option><option value="!Desligado">Exceto desligados</option></select>
       <button class="btn prim" onclick="abrirColab()">+ Novo</button>
       <button class="btn" onclick="if(typeof ImportarColab!=='undefined')ImportarColab.abrirSeletor();else notif('Importação indisponível','er');" title="Importar colaboradores em lote via CSV">📥 Importar CSV</button>
       <button class="btn xs" onclick="if(typeof ImportarColab!=='undefined')ImportarColab.baixarTemplate();else notif('Indisponível','er');" title="Baixar template CSV de exemplo" style="font-size:10px;padding:6px 10px;">📄 Modelo</button>
@@ -1675,8 +1676,9 @@ html[data-glass] .rs-opt{background:var(--glass-strong);border-color:var(--glass
       <button class="btn" onclick="abrirImpressaoAtiv()">🖨️ Imprimir</button>
       <button class="btn" onclick="imprimirCronograma()" title="Imprime tabela + Gantt no estilo MS Project">📅 Cronograma</button>
       <button class="btn" onclick="abrirReprogramacoes()" title="Lista de reprogramações, motivos e impactos">📜 Reprogramações</button>
-      <button class="btn crono-ed" onclick="document.getElementById('inpImpCrono').click()" title="Cria projeto e atividades a partir de um arquivo de cronograma (.json)">📥 Importar cronograma</button>
-      <input type="file" id="inpImpCrono" accept=".json,application/json" style="display:none" onchange="importarCronogramaArquivo(this)">
+      <button class="btn crono-ed" onclick="document.getElementById('inpImpCrono').click()" title="Importa o cronograma do MS Project (.mpp ou .xml) ou um arquivo .json: estrutura, datas, durações, predecessoras, % concluído, datas reais, linha de base, anotações, recursos e feriados do calendário">📥 Importar cronograma</button>
+      <input type="file" id="inpImpCrono" accept=".mpp,.xml,.json,application/json,application/xml,text/xml,application/vnd.ms-project" style="display:none" onchange="importarCronogramaArquivo(this)">
+      <button class="btn" onclick="exportarCronogramaProject()" title="Gera o cronograma do projeto filtrado no formato do MS Project (XML): abre direto no Project com estrutura, datas, vínculos, %, datas reais, linha de base, feriados e responsáveis. No Project, use Salvar como › .mpp">📤 Exportar p/ Project</button>
       <button class="btn crono-ed" onclick="abrirFeriados()" title="Calendário de trabalho: feriados e exceções (sábado/domingo liberados)">🗓️ Calendário</button>
       <button class="btn crono-ed" id="btnLinhaBase" onclick="cronoNovaLinhaBase()" title="Grava as datas atuais como linha de base do projeto filtrado">📐 Linha de base</button>
       <span id="cronoModoInfo" style="display:none;font-size:10px;font-weight:700;padding:5px 9px;border-radius:6px;"></span>
@@ -5091,6 +5093,11 @@ function renderCol(){
   if(srch)list=list.filter(c=>c.nome.toLowerCase().includes(srch)||c.funcao.toLowerCase().includes(srch));
   if(fp)list=list.filter(c=>c.projeto==fp);
   if(ff)list=list.filter(c=>c.funcao===ff);
+  const stEl=document.getElementById('filColSt');
+  if(stEl&&!stEl.dataset.ini){stEl.dataset.ini='1';try{const v=localStorage.getItem('gc_filColSt');if(v!==null&&[...stEl.options].some(o=>o.value===v))stEl.value=v;}catch(e){}}
+  const fst=stEl?.value||'';
+  if(fst==='!Desligado')list=list.filter(c=>(c.status||'Ativo')!=='Desligado');
+  else if(fst)list=list.filter(c=>(c.status||'Ativo')===fst);
   // Ordena alfabeticamente pelo nome
   list.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR',{sensitivity:'base'}));
   const tb=document.getElementById('tbCol');if(!tb)return;
@@ -14298,18 +14305,480 @@ function cronoNovaLinhaBase(){
   }});
 }
 
-// ── Importação de cronograma (arquivo .json gerado a partir de planilha / MS Project) ──
+// ── Leitor de arquivos do MS Project (.mpp 2010+ / formato MPP14) e MS Project XML (MSPDI) ──
+// Produz um modelo neutro: {titulo, inicio, fim, minutosDia, calendario:{nome,semana[7],feriados[],extras[]}, recursos[], tarefas[]}
+// tarefa: {uid,id,nivel,nome,inicio,fim (ISO local yyyy-mm-ddThh:mm),duracaoMin,pct,inicioReal,fimReal,marco,resumo,notas,
+//          restricaoTipo,restricaoData,lbInicio,lbFim,recursos[],preds:[{uid,tipo:'FS'|'SS'|'FF'|'SF',lagMin,decorrido}]}
+const MPPReader=(()=>{
+  // ---------- OLE2 / Compound File ----------
+  function CFB(u8){
+    const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+    const u16=o=>dv.getUint16(o,true),u32=o=>dv.getUint32(o,true);
+    if(u8.length<512||u32(0)!==0xE011CFD0||u32(4)!==0xE11AB1A1)throw new Error('o arquivo não é um .mpp válido do MS Project');
+    const ss=1<<u16(30),mss=1<<u16(32),nFat=u32(44),dirStart=u32(48),cutoff=u32(56),miniFatStart=u32(60),difStart=u32(68),nDif=u32(72);
+    const secOff=s=>512+s*ss;
+    const fatSecs=[];for(let i=0;i<109&&fatSecs.length<nFat;i++)fatSecs.push(u32(76+i*4));
+    let d=difStart;for(let k=0;k<nDif&&d<0xFFFFFFFA;k++){const o=secOff(d);for(let i=0;i<ss/4-1&&fatSecs.length<nFat;i++)fatSecs.push(u32(o+i*4));d=u32(o+ss-4);}
+    const fat=new Uint32Array(fatSecs.length*ss/4);let fi=0;
+    for(const s of fatSecs){const o=secOff(s);for(let i=0;i<ss/4;i++)fat[fi++]=o+i*4+4<=u8.length?u32(o+i*4):0xFFFFFFFE;}
+    const chain=(start,tab)=>{const out=[];let s=start,g=0;while(s<0xFFFFFFFA&&s<tab.length+1&&g++<5e6){out.push(s);s=tab[s];}return out;};
+    const readBig=(start,size)=>{const c=chain(start,fat);const out=new Uint8Array(c.length*ss);c.forEach((s,i)=>{const o=secOff(s);out.set(u8.subarray(o,Math.min(o+ss,u8.length)),i*ss);});return size==null?out:out.subarray(0,size);};
+    const dir=readBig(dirStart);const ddv=new DataView(dir.buffer,dir.byteOffset,dir.byteLength);
+    const ents=[];
+    for(let o=0;o+128<=dir.length;o+=128){
+      const nl=ddv.getUint16(o+64,true);let name='';for(let i=0;i<nl/2-1&&i<32;i++)name+=String.fromCharCode(ddv.getUint16(o+i*2,true));
+      ents.push({name,type:dir[o+66],left:ddv.getInt32(o+68,true),right:ddv.getInt32(o+72,true),child:ddv.getInt32(o+76,true),start:ddv.getUint32(o+116,true),size:ddv.getUint32(o+120,true)});
+    }
+    const root=ents[0];
+    let miniFat=new Uint32Array(0);if(miniFatStart<0xFFFFFFFA){const b=readBig(miniFatStart);miniFat=new Uint32Array(b.buffer.slice(b.byteOffset,b.byteOffset+(b.length&~3)));}
+    const mini=root.start<0xFFFFFFFA?readBig(root.start,root.size):new Uint8Array(0);
+    const kids=e=>{if(e._k)return e._k;e._k=[];const seen=new Set();const w=i=>{if(i<0||i>=ents.length||seen.has(i))return;seen.add(i);const x=ents[i];w(x.left);e._k.push(x);w(x.right);};w(e.child);return e._k;};
+    const read=e=>{if(!e||e.type!==2)return null;
+      if(e.size<cutoff){const c=chain(e.start,miniFat);const out=new Uint8Array(c.length*mss);c.forEach((s,i)=>out.set(mini.subarray(s*mss,s*mss+mss),i*mss));return out.subarray(0,e.size);}
+      return readBig(e.start,e.size);};
+    const find=path=>{let e=root;for(const p of path.split('/')){if(!p)continue;e=kids(e).find(k=>k.name===p);if(!e)return null;}return e;};
+    return {root,kids,read,find};
+  }
+  const DV=b=>new DataView(b.buffer,b.byteOffset,b.byteLength);
+  const i32=(b,o)=>o+4<=b.length?DV(b).getInt32(o,true):null;
+  const u16=(b,o)=>o+2<=b.length?DV(b).getUint16(o,true):null;
+  const utf16=b=>{let s='';for(let i=0;i+1<b.length;i+=2){const c=b[i]|(b[i+1]<<8);if(!c)break;s+=String.fromCharCode(c);}return s;};
+  const pad=n=>String(n).padStart(2,'0');
+  // Data/hora do MPP: [0-1] décimos de minuto no dia, [2-3] dias desde 31/12/1983
+  const EPOCH=Date.UTC(1983,11,31);
+  function ts(b,o){if(o==null||o+4>b.length)return null;const v=DV(b).getUint32(o,true);if(v===0xFFFFFFFF||v===0)return null;
+    const t=v&0xFFFF,dd=v>>>16;if(dd>=65535)return null;const d=new Date(EPOCH+dd*86400000+Math.round(t*6000));
+    return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate())+'T'+pad(d.getUTCHours())+':'+pad(d.getUTCMinutes());}
+  const dia=(b,o)=>{const v=u16(b,o);if(v==null||v===65535)return null;const d=new Date(EPOCH+v*86400000);return d.toISOString().slice(0,10);};
+  function rtfTexto(r){
+    if(!r)return'';if(!/^\{\\rtf/.test(r))return r.trim();
+    let s=r.replace(/\{\\\*[^{}]*(\{[^{}]*\}[^{}]*)*\}/g,'').replace(/\{\\fonttbl[\s\S]*?\}\}/,'').replace(/\{\\colortbl[\s\S]*?\}/,'');
+    s=s.replace(/\\'([0-9a-f]{2})/gi,(m,h)=>String.fromCharCode(parseInt(h,16)))
+       .replace(/\\u(-?\d+)\??/g,(m,n)=>String.fromCharCode((+n+65536)%65536))
+       .replace(/\\(par|line)\b ?/g,'\n').replace(/\\tab\b ?/g,'\t')
+       .replace(/\\[a-z]+-?\d* ?/gi,'').replace(/[{}]/g,'').replace(/\\([\\{}])/g,'$1');
+    return s.replace(/\r/g,'').replace(/\n{3,}/g,'\n\n').trim();
+  }
+  // ---------- Props (mapa chave → bytes) ----------
+  function props(b){const m=new Map();if(!b)return m;const n=u16(b,12);let o=16;
+    for(let k=0;k<n&&o+12<=b.length;k++){const sz=DV(b).getUint32(o,true),key=DV(b).getUint32(o+4,true);m.set(key,b.subarray(o+12,o+12+sz));o+=12+sz;if(o%2)o++;}return m;}
+  // ---------- Fixed / Var blocks ----------
+  function fixedBlock(c,dir,which,isz){
+    const meta=c.read(c.find(dir+'/Fixed'+which+'Meta')),data=c.read(c.find(dir+'/Fixed'+which+'Data'));
+    if(!meta||!data)return [];
+    const n=DV(meta).getUint32(8,true);const size=isz||Math.floor((meta.length-16)/Math.max(1,n));
+    const items=[];for(let i=0;i<n;i++){const o=16+i*size;if(o+8>meta.length)break;items.push({i,meta:meta.subarray(o,o+size),off:DV(meta).getUint32(o+4,true)});}
+    const offs=[...new Set(items.map(x=>x.off))].sort((a,b)=>a-b);
+    items.forEach(x=>{const k=offs.indexOf(x.off);const e=k+1<offs.length?offs[k+1]:data.length;x.data=x.off<data.length?data.subarray(x.off,e):new Uint8Array(0);});
+    return items;
+  }
+  function varData(c,dir){
+    const vm=c.read(c.find(dir+'/VarMeta')),vd=c.read(c.find(dir+'/Var2Data'));const map=new Map();
+    if(!vm||!vd||vm.length<24)return map;const n=DV(vm).getUint32(8,true);
+    for(let i=0;i<n;i++){const o=24+i*12;if(o+12>vm.length)break;const uid=DV(vm).getInt32(o,true),off=DV(vm).getUint32(o+4,true),type=DV(vm).getUint32(o+8,true);
+      if(off+4>vd.length)continue;const sz=DV(vd).getUint32(off,true);map.set(uid+':'+type,vd.subarray(off+4,Math.min(vd.length,off+4+sz)));}
+    return map;
+  }
+  // Mapa de campos (Props 0x20014/0x3000014): tipo do campo → offset no FixedData
+  function fieldOffsets(pr,keys){const m=new Map();
+    for(const k of keys){const b=pr.get(k);if(!b)continue;
+      // campos de dado fixo em ordem crescente de offset; quando o offset recomeça, passa ao bloco seguinte (Fixed2Data)
+      let blk=0,ult=-1;
+      for(let i=0;i+28<=b.length;i+=28){const off=u16(b,i+4),loc=b[i+8],type=DV(b).getUint32(i+12,true);
+        if(loc!==0x0a||off===65535)continue;if(off<ult)blk++;ult=off;
+        const k=blk?type+'#'+blk:type;if(!m.has(k))m.set(k,off);}
+      if(m.size)break;}
+    return m;}
+
+  function lerMPP(u8){
+    const c=CFB(u8);
+    const raiz=c.kids(c.root).find(e=>e.type===1&&/^\s*1\d4$/.test(e.name));
+    if(!raiz)throw new Error('versão do .mpp não suportada (use Project 2010 ou mais novo, ou salve como XML)');
+    if(raiz.name.trim()!=='114')throw new Error('formato .mpp antigo ('+raiz.name.trim()+'). Abra no Project e salve novamente, ou use "Salvar como XML"');
+    const R='   114';
+    const pr=props(c.read(c.find(R+'/Props')));
+    const T=0x0B400000;
+    const fo=fieldOffsets(pr,[0x20014,0x3000014]);
+    const F=(id,def)=>fo.has(T+id)?fo.get(T+id):def;
+    const OFF={id:F(0x17,0),uid:F(0x56,4),ct:F(0x11,64),cd:F(0x12,66),dur:F(0x1d,84),pct:F(0x20,92),ini:F(0x23,96),fim:F(0x24,100),ir:F(0x29,120),fr:F(0x2a,124),niv:F(0xf9,172)};
+    // bloco 2: início/término da tarefa agendada manualmente
+    const F2=(id,def)=>fo.has((T+id)+'#1')?fo.get((T+id)+'#1'):def;
+    const OFF2={mi:F2(0x503,50),mf:F2(0x504,54)};
+    const tv=varData(c,R+'/TBkndTask');
+    const tg=(uid,id)=>tv.get(uid+':'+(T+id));
+    let titulo='';
+    const tb=tg(0,0x0e);if(tb)titulo=utf16(tb);
+    // tarefas
+    const tarefas=[];const vistos=new Set();
+    const bloco2=fixedBlock(c,R+'/TBkndTask','2',null);
+    for(const it of fixedBlock(c,R+'/TBkndTask','',47)){
+      const d=it.data;if(d.length<OFF.fim+4||(it.meta[0]&0x06))continue;
+      const uid=i32(d,OFF.uid);if(uid==null||uid<0||vistos.has(uid))continue;vistos.add(uid);
+      const nome=utf16(tg(uid,0x0e)||new Uint8Array(0));
+      let ini=ts(d,OFF.ini),fim=ts(d,OFF.fim);
+      const b2=bloco2[it.i];const manual=!!(b2&&b2.meta.length>8&&(b2.meta[8]&0x80));
+      if(manual){const mi=ts(b2.data,OFF2.mi),mf=ts(b2.data,OFF2.mf);if(mi&&mf){ini=mi;fim=mf;}}
+      if(uid!==0&&!nome&&!ini)continue; // linha em branco
+      const nt=tg(uid,0x0f);let notas='';if(nt){let s='';for(let i=0;i<nt.length&&nt[i];i++)s+=String.fromCharCode(nt[i]);notas=rtfTexto(s);}
+      const ct=u16(d,OFF.ct);
+      tarefas.push({uid,id:i32(d,OFF.id),nivel:u16(d,OFF.niv)||0,nome,inicio:ini,fim:fim,duracaoMin:Math.round((i32(d,OFF.dur)||0)/10),
+        pct:Math.min(100,u16(d,OFF.pct)||0),inicioReal:ts(d,OFF.ir),fimReal:ts(d,OFF.fr),
+        marco:!!(it.meta[10]&0x02),resumo:!!(it.meta[12]&0x08),notas,
+        restricaoTipo:ct!=null&&ct<16?ct:0,restricaoData:ts(d,OFF.cd),
+        lbInicio:tg(uid,0x2b)?ts(tg(uid,0x2b),0):null,lbFim:tg(uid,0x2c)?ts(tg(uid,0x2c),0):null,recursos:[],preds:[]});
+    }
+    tarefas.sort((a,b)=>a.id-b.id);
+    const porUid=new Map(tarefas.map(t=>[t.uid,t]));
+    // vínculos
+    const tipos={0:'FF',1:'FS',2:'SF',3:'SS'};
+    for(const it of fixedBlock(c,R+'/TBkndCons','',null)){
+      const d=it.data;if(d.length<20||(it.meta[0]&0x02))continue;
+      const p=i32(d,4),s=i32(d,8);const suc=porUid.get(s);if(!suc||!porUid.has(p)||p===s)continue;
+      const un=u16(d,18);const lag=Math.round(i32(d,14)/10);
+      if(suc.preds.some(x=>x.uid===p))continue;
+      suc.preds.push({uid:p,tipo:tipos[u16(d,12)]||'FS',lagMin:lag,decorrido:[4,6,8,10,12,20,36,38,40,42,44,52].includes(un)});
+    }
+    // recursos e atribuições
+    const rv=varData(c,R+'/TBkndRsc');const recursos=new Map();
+    for(const [k,b] of rv){const [uid,type]=k.split(':').map(Number);if(type===0x0C400001&&uid>0){const n=utf16(b).trim();if(n)recursos.set(uid,n);}}
+    for(const it of fixedBlock(c,R+'/TBkndAssn','',null)){
+      const d=it.data;if(d.length<12||(it.meta[0]&0x02))continue;
+      const t=porUid.get(i32(d,4)),r=recursos.get(i32(d,8));if(t&&r&&!t.recursos.includes(r))t.recursos.push(r);
+    }
+    // calendário do projeto
+    const calNome=pr.get(0x240000e)?utf16(pr.get(0x240000e)):'';
+    const cv=varData(c,R+'/TBkndCal');const cals=[];
+    for(const [k,b] of cv){const [uid,type]=k.split(':').map(Number);if(type===0x0D400008)cals.push({uid,data:b,nome:utf16(cv.get(uid+':'+0x0D400001)||new Uint8Array(0))});}
+    const cal=cals.find(x=>x.nome===calNome)||cals.find(x=>/padr|standard/i.test(x.nome))||cals[0];
+    const calendario={nome:cal?cal.nome:'',semana:[false,true,true,true,true,true,false],feriados:[],extras:[]};
+    if(cal&&cal.data.length>=420){
+      const b=cal.data;
+      for(let w=0;w<7;w++){const o=w*60;if(u16(b,o)===1)continue;calendario.semana[w]=(u16(b,o+2)||0)>0;}
+      if(b.length>=424){
+        const n=u16(b,420);let o=424;
+        for(let k=0;k<n&&o+72<=b.length;k++){
+          // registro: [0] de, [2] até (dias), [4] ocorrências, [14] nº de períodos de trabalho (0 = folga);
+          // trailer de 20 bytes: [0] tipo (1 diário, 2 anual dia/mês...), [4] mês(0-11)/dia, [16] bytes do nome; alinhado em 4
+          const de=dia(b,o),ate=dia(b,o+2),occ=u16(b,o+4)||1,per=u16(b,o+14)||0;
+          let nome='',next=o+72,tipo=1,mes=null,diaM=null;
+          const nl=o+92<=b.length?i32(b,o+88):-1;
+          if(nl>=0&&nl<4096&&nl%2===0&&o+92+nl<=b.length){
+            tipo=i32(b,o+72)||1;mes=b[o+76];diaM=b[o+77];
+            nome=utf16(b.subarray(o+92,o+92+nl));next=o+92+nl;next+=(4-next%4)%4;
+          }
+          const trab=per>0,lista=trab?calendario.extras:calendario.feriados;
+          const add=x=>lista.push({data:x,nome:nome||(trab?'Dia de trabalho (Project)':'Feriado (Project)')});
+          if(de&&ate){
+            if(tipo===2&&mes!=null&&mes<12&&diaM>=1&&diaM<=31){
+              // anual (mesmo dia/mês) por N ocorrências
+              for(let y=+de.slice(0,4),g=0;g<occ&&y<=+ate.slice(0,4);y++,g++)add(y+'-'+pad(mes+1)+'-'+pad(diaM));
+            } else if(tipo===1){
+              for(let x=de,g=0;x<=ate&&g<400;g++){add(x);const t=new Date(x+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+1);x=t.toISOString().slice(0,10);}
+            } else { add(de); if(!lerMPP._avisos)lerMPP._avisos=[]; }
+          }
+          o=next;
+        }
+      }
+    }
+    const t0=porUid.get(0);
+    if(t0&&!titulo)titulo=t0.nome;
+    return finalizar({titulo,origem:'MS Project (.mpp)',calendario,tarefas,recursos:[...recursos.values()],minutosDia:480});
+  }
+
+  // ---------- MS Project XML (MSPDI) ----------
+  function lerXML(txt){
+    const doc=new DOMParser().parseFromString(txt,'application/xml');
+    if(doc.getElementsByTagName('parsererror').length)throw new Error('XML inválido');
+    const P=doc.documentElement;if(!P||P.localName!=='Project')throw new Error('o XML não é um arquivo do MS Project');
+    const kid=(el,n)=>{for(const c of el.children)if(c.localName===n)return c;return null;};
+    const kids=(el,n)=>el?[...el.children].filter(c=>c.localName===n):[];
+    const tx=(el,n)=>{const k=el&&kid(el,n);return k?k.textContent:'';};
+    const dt=v=>v?v.slice(0,16):null;
+    const durMin=v=>{const m=/PT(\d+)H(\d+)M([\d.]+)S/.exec(v||'');return m?(+m[1])*60+(+m[2]):0;};
+    const minutosDia=+tx(P,'MinutesPerDay')||480;
+    const tarefas=kids(kid(P,'Tasks'),'Task').filter(t=>tx(t,'IsNull')!=='1').map(t=>{
+      const bl=kids(t,'Baseline').find(b=>tx(b,'Number')==='0');
+      return {uid:+tx(t,'UID'),id:+tx(t,'ID'),nivel:+tx(t,'OutlineLevel')||0,nome:tx(t,'Name'),inicio:dt(tx(t,'Start')),fim:dt(tx(t,'Finish')),
+        duracaoMin:durMin(tx(t,'Duration')),pct:+tx(t,'PercentComplete')||0,inicioReal:dt(tx(t,'ActualStart')),fimReal:dt(tx(t,'ActualFinish')),
+        marco:tx(t,'Milestone')==='1',resumo:tx(t,'Summary')==='1',notas:tx(t,'Notes'),restricaoTipo:+tx(t,'ConstraintType')||0,restricaoData:dt(tx(t,'ConstraintDate')),
+        lbInicio:bl?dt(tx(bl,'Start')):null,lbFim:bl?dt(tx(bl,'Finish')):null,recursos:[],
+        preds:kids(t,'PredecessorLink').map(l=>({uid:+tx(l,'PredecessorUID'),tipo:({0:'FF',1:'FS',2:'SF',3:'SS'})[tx(l,'Type')]||'FS',lagMin:Math.round((+tx(l,'LinkLag')||0)/10),
+          decorrido:[4,6,8,10,12,20,36,38,40,42,44,52].includes(+tx(l,'LagFormat'))}))};
+    }).sort((a,b)=>a.id-b.id);
+    const porUid=new Map(tarefas.map(t=>[t.uid,t]));
+    const rec=new Map(kids(kid(P,'Resources'),'Resource').map(r=>[+tx(r,'UID'),tx(r,'Name')]).filter(x=>x[0]>0&&x[1]));
+    kids(kid(P,'Assignments'),'Assignment').forEach(a=>{const t=porUid.get(+tx(a,'TaskUID')),r=rec.get(+tx(a,'ResourceUID'));if(t&&r&&!t.recursos.includes(r))t.recursos.push(r);});
+    // arquivo exportado pelo sistema: responsáveis na coluna "Contato"
+    kids(kid(P,'Tasks'),'Task').forEach(el=>{const t=porUid.get(+tx(el,'UID'));const ct=tx(el,'Contact');if(t&&!t.recursos.length&&ct)t.recursos=ct.split(/[,;]/).map(s=>s.trim()).filter(Boolean);});
+    const calUid=tx(P,'CalendarUID');
+    const calEl=kids(kid(P,'Calendars'),'Calendar').find(c=>tx(c,'UID')===calUid)||kids(kid(P,'Calendars'),'Calendar')[0];
+    const calendario={nome:calEl?tx(calEl,'Name'):'',semana:[false,true,true,true,true,true,false],feriados:[],extras:[]};
+    const addFaixa=(de,ate,trab,nome)=>{if(!de||!ate)return;for(let x=de.slice(0,10),g=0;x<=ate.slice(0,10)&&g<400;g++){(trab?calendario.extras:calendario.feriados).push({data:x,nome:nome||(trab?'Dia de trabalho (Project)':'Feriado (Project)')});const t=new Date(x+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+1);x=t.toISOString().slice(0,10);}};
+    if(calEl){
+      kids(kid(calEl,'WeekDays'),'WeekDay').forEach(w=>{const dtp=+tx(w,'DayType');const tp=kid(w,'TimePeriod');
+        if(dtp>=1&&dtp<=7&&!tp)calendario.semana[dtp-1]=tx(w,'DayWorking')==='1';
+        else if(dtp===0&&tp&&!kid(calEl,'Exceptions'))addFaixa(tx(tp,'FromDate'),tx(tp,'ToDate'),tx(w,'DayWorking')==='1','');});
+      kids(kid(calEl,'Exceptions'),'Exception').forEach(e=>{const tp=kid(e,'TimePeriod');if(tp&&(tx(e,'Type')||'1')==='1')addFaixa(tx(tp,'FromDate'),tx(tp,'ToDate'),tx(e,'DayWorking')==='1',tx(e,'Name'));});
+    }
+    const t0=porUid.get(0);
+    return finalizar({titulo:tx(P,'Title')||(t0&&t0.nome)||tx(P,'Name').replace(/\.xml$/i,''),origem:'MS Project (.xml)',calendario,tarefas,recursos:[...rec.values()],minutosDia});
+  }
+  function finalizar(m){
+    // resumo pela hierarquia (garante coerência mesmo sem o bit de resumo)
+    const ts=m.tarefas.filter(t=>t.uid!==0||m.tarefas.length===1);
+    ts.forEach((t,i)=>{const nx=ts[i+1];t.resumo=!!(nx&&nx.nivel>t.nivel);});
+    const t0=m.tarefas.find(t=>t.uid===0);
+    m.inicio=t0?t0.inicio:(ts[0]&&ts[0].inicio);m.fim=t0?t0.fim:null;
+    m.tarefas=ts.filter(t=>t.uid!==0);
+    const vist=new Set();m.calendario.feriados=m.calendario.feriados.filter(f=>!vist.has(f.data)&&vist.add(f.data));
+    const v2=new Set();m.calendario.extras=m.calendario.extras.filter(f=>!v2.has(f.data)&&v2.add(f.data));
+    return m;
+  }
+  return {lerMPP,lerXML,_CFB:CFB};
+})();
+// ── MS Project: importação (.mpp / .xml) e exportação (XML do Project) ──
+// Converte o modelo lido do Project no formato de importação do sistema (gestaocampo-cronograma),
+// mantendo as datas exatas do arquivo: vínculos em horas viram o equivalente em dias e
+// datas presas (restrições, datas reais, nivelamento) viram "não iniciar antes de".
+function _projectNorm(t){return String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').trim().replace(/\s+/g,' ').toUpperCase();}
+function _projectParaDados(m,arquivo){
+  const iso=d=>d?d.slice(0,10):null;
+  const hm=d=>d?(+d.slice(11,13))*60+(+d.slice(14,16)):0;
+  const sem=m.calendario.semana;
+  const fer=new Set(m.calendario.feriados.map(f=>f.data)),ext=new Set(m.calendario.extras.map(f=>f.data));
+  // Calendário do Project → calendário do sistema (Seg–Sex + dias liberados − feriados)
+  const feriados=m.calendario.feriados.map(f=>({data:f.data,nome:f.nome||'Feriado'}));
+  const diasExtras=m.calendario.extras.map(f=>({data:f.data,nome:f.nome||'Dia de trabalho (Project)',usuario:'MS Project',em:new Date().toISOString()}));
+  const datas=m.tarefas.flatMap(t=>[iso(t.inicio),iso(t.fim)]).filter(Boolean).sort();
+  if(datas.length){
+    const de=_isoAdd(datas[0],-14),ate=_isoAdd(datas[datas.length-1],120);
+    for(let d=de;d<=ate;d=_isoAdd(d,1)){
+      const w=_isoDow(d),padrao=w!==0&&w!==6;
+      if(sem[w]&&!padrao&&!fer.has(d)&&!ext.has(d)){diasExtras.push({data:d,nome:(w===6?'Sábado':'Domingo')+' de trabalho (calendário do Project)',usuario:'MS Project',em:new Date().toISOString()});ext.add(d);}
+      if(!sem[w]&&padrao&&!ext.has(d)&&!fer.has(d)){feriados.push({data:d,nome:'Dia sem trabalho (calendário do Project)'});fer.add(d);}
+    }
+  }
+  const util=d=>{const w=_isoDow(d);return ext.has(d)||(w!==0&&w!==6&&!fer.has(d));};
+  const antUtil=d=>{let x=_isoAdd(d,-1);for(let k=0;k<40&&!util(x);k++)x=_isoAdd(x,-1);return x;};
+  const proxUtil=d=>{let x=_isoAdd(d,1);for(let k=0;k<40&&!util(x);k++)x=_isoAdd(x,1);return x;};
+  // Horário de início/fim do expediente (para saber se um término às 08:00 é, na prática, o dia anterior)
+  const ts=m.tarefas.filter(t=>!t.resumo&&t.duracaoMin>0&&t.inicio);
+  const iniDia=ts.length?Math.min(...ts.map(t=>hm(t.inicio))):480;
+  const fimDia=ts.length?Math.max(...ts.filter(t=>t.fim).map(t=>hm(t.fim))):1020;
+  const dIni=t=>{let d=iso(t.inicio);if(d&&t.duracaoMin>0&&hm(t.inicio)>=fimDia)d=proxUtil(d);return d;};
+  const dFim=t=>{let d=iso(t.fim);if(!d)return d;const i=dIni(t);if(t.duracaoMin>0&&hm(t.fim)<=iniDia&&d>i)d=antUtil(d);return d<i?i:d;};
+  const dReal=(v,fim)=>{if(!v)return null;let d=iso(v);if(fim&&hm(v)<=iniDia){const x=antUtil(d);d=x;}return d;};
+  const tipos={FS:'TI',SS:'II',FF:'TT',SF:'IT'};
+  const minDia=m.minutosDia||480;
+  const colabs=(typeof S!=='undefined'&&S.colaboradores)||[];
+  const porNome=new Map(colabs.map(c=>[_projectNorm(c.nome),c.id]));
+  const pilha=[];const semColab=new Set();
+  const atividades=m.tarefas.map(t=>{
+    while(pilha.length&&pilha[pilha.length-1].nivel>=t.nivel)pilha.pop();
+    const pai=pilha.length?pilha[pilha.length-1].ref:null;
+    const ref='P'+t.uid;
+    pilha.push({nivel:t.nivel,ref});
+    const resp=[],sem=[];
+    (t.recursos||[]).forEach(r=>{const id=porNome.get(_projectNorm(r));if(id!=null)resp.push(id);else{sem.push(r);semColab.add(r);}});
+    const ini=dIni(t),fim=dFim(t);
+    const marco=!t.resumo&&(t.marco||t.duracaoMin===0);
+    const pct=Math.max(0,Math.min(100,Math.round(t.pct||0)));
+    let desc=t.notas||'';
+    if(sem.length)desc=(desc?desc+'\n':'')+'Recursos no Project: '+sem.join(', ');
+    return {ref,pai,nome:t.nome||'(sem nome)',desc,inicio:ini,fim:marco?ini:fim,marco,
+      pct,status:pct>=100?'Concluída':pct>0?'Em andamento':'Planejada',
+      inicioReal:t.inicioReal?dReal(t.inicioReal,false):null,terminoReal:(t.fimReal&&pct>=100)?dReal(t.fimReal,true):null,
+      responsaveis:resp,linhaBase:(t.lbInicio&&t.lbFim)?{inicio:iso(t.lbInicio),fim:t.lbFim?dFim({inicio:t.lbInicio,fim:t.lbFim,duracaoMin:1}):null}:null,
+      predecessoras:t.preds.map(p=>{
+        const dec=!!p.decorrido;const lag=dec?Math.round(p.lagMin/1440):Math.round(p.lagMin/minDia);
+        return {ref:'P'+p.uid,tipo:tipos[p.tipo]||'TI',lag,...(dec&&lag?{corrido:true}:{})};
+      }),
+      projectUid:t.uid,projectId:t.id};
+  });
+  const titulo=(m.titulo||'').trim()||String(arquivo||'Cronograma').replace(/\.(mpp|xml)$/i,'');
+  const avisos=[];if(semColab.size)avisos.push(semColab.size+' recurso(s) do Project sem colaborador com o mesmo nome (anotados na descrição): '+[...semColab].slice(0,6).join(', '));
+  return {formato:'gestaocampo-cronograma',origem:(m.origem||'MS Project')+' — '+(arquivo||''),manterDatasArquivo:true,atualizarDatas:true,avisos,
+    projeto:{nome:titulo,inicio:datas[0]||'',fim:datas[datas.length-1]||'',feriados,diasExtras},atividades};
+}
+
+// Ajusta defasagens e "não iniciar antes de" para que o encadeamento do sistema (em dias)
+// reproduza exatamente as datas do arquivo (o Project agenda em horas).
+function _cronoFixarDatasArquivo(lista,pjId,idsAlvo){
+  const cal=_cronoCal(pjId);
+  const T=_cronoArvore(lista,pjId);const {info,porId}=T;
+  const alvo=idsAlvo?new Set(idsAlvo):null;
+  let ajustes=0,presas=0;
+  const pos=a=>({S:a.inicio?cal.ceil(a.inicio):null,F:a.fim?cal.floor(a.fim):null});
+  const durDe=a=>info.get(a.id).resumo?null:_cronoDur(a,cal);
+  // início que o vínculo p impõe a uma atividade de duração D
+  const imposto=(p,D)=>{
+    const pa=porId.get(p.id);if(!pa||!pa.inicio||!pa.fim)return null;
+    const pv=pos(pa);const eS=pv.S,eF=Math.max(pv.S,pv.F);
+    const predMarco=!info.get(p.id).resumo&&_cronoDur(pa,cal)===0;
+    const lag=p.lag||0,Dm=Math.max(D==null?1:D,1);
+    if(p.corrido&&lag){
+      if(p.tipo==='II')return cal.ceil(_isoAdd(cal.date(eS),lag));
+      if(p.tipo==='TT')return cal.floor(_isoAdd(cal.date(eF),lag))-(Dm-1);
+      if(p.tipo==='IT')return cal.floor(_isoAdd(cal.date(eS),lag-1))-(Dm-1);
+      return predMarco?cal.ceil(_isoAdd(cal.date(eS),lag)):cal.ceil(_isoAdd(cal.date(eF),1+lag));
+    }
+    if(p.tipo==='II')return eS+lag;
+    if(p.tipo==='TT')return eF+lag-(Dm-1);
+    if(p.tipo==='IT')return eS+lag-1-(Dm-1);
+    return (predMarco?eS:eF+1)+lag;
+  };
+  // Reduz a defasagem para que o vínculo não empurre além da data do arquivo
+  const encaixar=(p,D,limite)=>{
+    const s=imposto(p,D);if(s==null||s<=limite)return;
+    if(p.corrido){ // vira defasagem em dias úteis equivalente
+      const semLag={...p,lag:0};delete semLag.corrido;const s0=imposto(semLag,D);
+      p.lag=limite-s0;delete p.corrido;
+    } else p.lag=(p.lag||0)-(s-limite);
+    ajustes++;
+  };
+  // 1) linhas macro com vínculos: não podem empurrar além do seu início
+  T.seq.forEach(a=>{if(alvo&&!alvo.has(a.id))return;if(!info.get(a.id).resumo||!a.inicio)return;
+    const S0=cal.ceil(a.inicio);(a.predecessoras||[]).forEach(p=>encaixar(p,null,S0));});
+  // 2) sublinhas: vínculos próprios + herdados das linhas macro
+  T.seq.forEach(a=>{
+    if(alvo&&!alvo.has(a.id))return;
+    if(info.get(a.id).resumo||!a.inicio)return;
+    const D=durDe(a),S0=cal.ceil(a.inicio);
+    (a.predecessoras||[]).forEach(p=>encaixar(p,D,S0));
+    const herd=_cronoAncestrais(info,a.id).flatMap(pid=>porId.get(pid)?.predecessoras||[]);
+    const todos=[...(a.predecessoras||[]),...herd];
+    if(!todos.length)return;
+    const lim=Math.max(...todos.map(p=>imposto(p,D)).filter(v=>v!=null));
+    if(lim<S0||!isFinite(lim)){a.inicioMin=a.inicio;presas++;}
+  });
+  return {ajustes,presas};
+}
+
+// Leitura do arquivo escolhido em "Importar cronograma"
+function _lerArquivoCronograma(f,cb){
+  const nome=(f.name||'').toLowerCase();const rd=new FileReader();
+  if(nome.endsWith('.mpp')){
+    rd.onload=()=>{try{const m=MPPReader.lerMPP(new Uint8Array(rd.result));if(!m.tarefas.length)throw new Error('nenhuma tarefa encontrada no arquivo');cb(_projectParaDados(m,f.name));}
+      catch(e){console.error(e);notif('Não foi possível ler o .mpp: '+e.message,'er');}};
+    rd.readAsArrayBuffer(f);return;
+  }
+  rd.onload=()=>{try{
+      const txt=String(rd.result||'').replace(/^﻿/,'');
+      if(nome.endsWith('.xml')||/^\s*<\?xml|^\s*<Project/i.test(txt)){const m=MPPReader.lerXML(txt);if(!m.tarefas.length)throw new Error('nenhuma tarefa encontrada no arquivo');cb(_projectParaDados(m,f.name));}
+      else cb(JSON.parse(txt));
+    }catch(e){console.error(e);notif('Arquivo de cronograma inválido: '+e.message,'er');}};
+  rd.readAsText(f,'utf-8');
+}
+
+// ── Exportação para o MS Project (XML do Project — abre direto no Project e pode ser salvo como .mpp) ──
+function exportarCronogramaProject(){
+  const pjId=document.getElementById('filAtPj')?.value;
+  if(!pjId){notif('Selecione um projeto no filtro para exportar o cronograma','wn');return;}
+  const pj=S.projetos.find(x=>x.id==pjId);if(!pj)return;
+  const r=_cronoGerarXMLProject(pj);
+  if(!r){notif('Projeto sem atividades com datas para exportar','wn');return;}
+  const nomeArq=(pj.nome||'cronograma').replace(/[\\/:*?"<>|]+/g,'-').trim()+'.xml';
+  const blob=new Blob([r.xml],{type:'application/xml;charset=utf-8'});
+  const url=URL.createObjectURL(blob);const lk=document.createElement('a');lk.href=url;lk.download=nomeArq;document.body.appendChild(lk);lk.click();lk.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);
+  log('Cronograma exportado para o MS Project: '+pj.nome+' ('+r.n+' linhas)','📤');
+  notif('📤 '+nomeArq+' gerado — abra no MS Project (Arquivo › Abrir) e use "Salvar como" .mpp');
+}
+function _cronoGerarXMLProject(pj){
+  const lista=S.atividades.filter(a=>String(a.projetoId)===String(pj.id));
+  if(!lista.some(a=>a.inicio))return null;
+  const T=_cronoArvore(S.atividades,pj.id);const cal=_cronoCal(pj.id);
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
+  const H0='08:00:00',H1='17:00:00';
+  const dt=(d,h)=>d+'T'+h;
+  const dur=dias=>'PT'+(dias*8)+'H0M0S';
+  const uid=new Map(T.seq.map((a,i)=>[a.id,i+1]));
+  const tipo={TI:1,II:3,TT:0,IT:2};
+  const travado=!!pj.linhaBaseSalva;
+  const ini=T.seq.map(a=>a.inicio).filter(Boolean).sort()[0]||pj.inicio||new Date().toISOString().slice(0,10);
+  const fimP=T.seq.map(a=>a.fim).filter(Boolean).sort().pop()||ini;
+  const exped='<WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes>';
+  // exceções: dias consecutivos com o mesmo nome viram uma faixa
+  const faixas=(arr,trab)=>{const xs=[...arr].filter(f=>f&&f.data).sort((a,b)=>a.data<b.data?-1:1);const out=[];
+    xs.forEach(f=>{const u=out[out.length-1];if(u&&u.nome===(f.nome||'')&&_isoAdd(u.ate,1)===f.data)u.ate=f.data;else out.push({de:f.data,ate:f.data,nome:f.nome||''});});
+    return out.map(x=>'<Exception><EnteredByOccurrences>0</EnteredByOccurrences><TimePeriod><FromDate>'+x.de+'T00:00:00</FromDate><ToDate>'+x.ate+'T23:59:00</ToDate></TimePeriod><Occurrences>'+(_isoDiff(x.de,x.ate)+1)+'</Occurrences><Name>'+esc(x.nome||(trab?'Dia de trabalho':'Feriado'))+'</Name><Type>1</Type><DayWorking>'+(trab?1:0)+'</DayWorking>'+(trab?exped:'')+'</Exception>').join('');};
+  const semana=[1,2,3,4,5,6,7].map(d=>'<WeekDay><DayType>'+d+'</DayType><DayWorking>'+(d>=2&&d<=6?1:0)+'</DayWorking>'+(d>=2&&d<=6?exped:'')+'</WeekDay>').join('');
+  const extrasSet=new Set((pj.diasExtras||[]).map(x=>x.data));
+  const feriados=(pj.feriados||[]).filter(f=>!extrasSet.has(f.data));
+  // recursos = colaboradores responsáveis
+  const recIds=[...new Set(T.seq.flatMap(a=>info0(a).resumo?[]:(a.responsaveis||[])))].filter(id=>S.colaboradores.some(c=>c.id===id));
+  function info0(a){return T.info.get(a.id);}
+  const recUid=new Map(recIds.map((id,i)=>[id,i+1]));
+  const tarefas=[];
+  tarefas.push('<Task><UID>0</UID><ID>0</ID><Name>'+esc(pj.nome)+'</Name><Type>1</Type><IsNull>0</IsNull><OutlineNumber>0</OutlineNumber><OutlineLevel>0</OutlineLevel><Start>'+dt(ini,H0)+'</Start><Finish>'+dt(fimP,H1)+'</Finish><Summary>1</Summary></Task>');
+  T.seq.forEach(a=>{
+    const inf=T.info.get(a.id);const n=uid.get(a.id);
+    const D=inf.resumo?Math.max(1,a.duracao||cal.dias(a.inicio,a.fim)):_cronoDur(a,cal);
+    const marco=!inf.resumo&&D===0;
+    const temPred=(a.predecessoras||[]).length>0||_cronoAncestrais(T.info,a.id).some(pid=>(T.porId.get(pid)?.predecessoras||[]).length);
+    // A ordem dos campos segue o esquema do MS Project (o Project ignora campos fora de ordem)
+    const pct=inf.resumo?null:(a.status==='Concluída'?100:Math.max(0,Math.min(100,+a.pct||0)));
+    // Sem vínculos: a data é fixada com "Não iniciar antes de"; com vínculos: o mais breve possível (respeitando a data mínima, se houver)
+    // (marco com vínculo também: o Project o colocaria no fim do dia da predecessora; o sistema, no dia seguinte)
+    const cdata=inf.resumo?null:((!temPred||marco)?a.inicio:(a.inicioMin||null));
+    // Responsáveis: coluna "Contato" (atribuição de recurso via XML zeraria o % concluído no Project)
+    const nomesResp=inf.resumo?'':(a.responsaveis||[]).map(id=>S.colaboradores.find(c=>c.id===id)?.nome).filter(Boolean).join(', ');
+    let x='<Task><UID>'+n+'</UID><ID>'+n+'</ID><Name>'+esc(a.nome)+'</Name><Active>1</Active><Manual>0</Manual><Type>1</Type><IsNull>0</IsNull>'
+      +(nomesResp?'<Contact>'+esc(nomesResp)+'</Contact>':'')
+      +'<WBS>'+inf.wbs+'</WBS><OutlineNumber>'+inf.wbs+'</OutlineNumber><OutlineLevel>'+(inf.nivel+1)+'</OutlineLevel>';
+    if(a.inicio){x+='<Start>'+dt(a.inicio,H0)+'</Start><Finish>'+dt(marco?a.inicio:(a.fim||a.inicio),marco?H0:H1)+'</Finish>';}
+    x+='<Duration>'+dur(marco?0:D)+'</Duration><DurationFormat>7</DurationFormat><EffortDriven>0</EffortDriven>'
+      +'<Milestone>'+(marco?1:0)+'</Milestone><Summary>'+(inf.resumo?1:0)+'</Summary>';
+    if(pct!=null){
+      x+='<PercentComplete>'+pct+'</PercentComplete>';
+      if(a.inicioReal&&(pct>0||a.terminoReal))x+='<ActualStart>'+dt(a.inicioReal,H0)+'</ActualStart>';
+      if(a.terminoReal&&pct>=100)x+='<ActualFinish>'+dt(a.terminoReal,marco?H0:H1)+'</ActualFinish>';
+      // duração real/restante: sem elas o Project recalcula a duração pelo trabalho
+      const hrs=marco?0:D*8,hr=Math.round(hrs*pct/100);
+      x+='<ActualDuration>PT'+hr+'H0M0S</ActualDuration><RemainingDuration>PT'+(hrs-hr)+'H0M0S</RemainingDuration>';
+      x+='<ConstraintType>'+(cdata?4:0)+'</ConstraintType>';
+      if(cdata)x+='<ConstraintDate>'+dt(cdata,H0)+'</ConstraintDate>';
+    }
+    if(a.desc)x+='<Notes>'+esc(a.desc)+'</Notes>';
+    (a.predecessoras||[]).forEach(p=>{const pu=uid.get(p.id);if(!pu)return;const lag=p.lag||0;
+      x+='<PredecessorLink><PredecessorUID>'+pu+'</PredecessorUID><Type>'+(tipo[p.tipo||'TI']??1)+'</Type><CrossProject>0</CrossProject><LinkLag>'+(p.corrido?lag*14400:lag*4800)+'</LinkLag><LagFormat>'+(p.corrido?8:7)+'</LagFormat></PredecessorLink>';});
+    if(travado&&a.baseline&&a.baseline.inicioOriginal&&a.baseline.fimOriginal){
+      const bd=marco?0:Math.max(1,cal.dias(a.baseline.inicioOriginal,a.baseline.fimOriginal));
+      x+='<Baseline><Number>0</Number><Start>'+dt(a.baseline.inicioOriginal,H0)+'</Start><Finish>'+dt(a.baseline.fimOriginal,marco?H0:H1)+'</Finish><Duration>'+dur(bd)+'</Duration><DurationFormat>7</DurationFormat></Baseline>';
+    }
+    x+='</Task>';tarefas.push(x);
+  });
+  const recursos=recIds.map(id=>{const c=S.colaboradores.find(x=>x.id===id);return '<Resource><UID>'+recUid.get(id)+'</UID><ID>'+recUid.get(id)+'</ID><Name>'+esc(c.nome)+'</Name><Type>1</Type><IsNull>0</IsNull>'+(c.funcao?'<Group>'+esc(c.funcao)+'</Group>':'')+'<MaxUnits>1.00</MaxUnits><CalendarUID>-1</CalendarUID></Resource>';});
+  const atrib=[];
+  const xml='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Project xmlns="http://schemas.microsoft.com/project">'
+    +'<SaveVersion>14</SaveVersion><Name>'+esc(pj.nome)+'.xml</Name><Title>'+esc(pj.nome)+'</Title>'+(pj.cliente?'<Company>'+esc(pj.cliente)+'</Company>':'')
+    +'<Author>GestãoCampo</Author><CreationDate>'+new Date().toISOString().slice(0,19)+'</CreationDate>'
+    +'<ScheduleFromStart>1</ScheduleFromStart><StartDate>'+dt(ini,H0)+'</StartDate><FinishDate>'+dt(fimP,H1)+'</FinishDate>'
+    +'<CurrencySymbol>R$</CurrencySymbol><CurrencyCode>BRL</CurrencyCode>'
+    +'<CalendarUID>1</CalendarUID><DefaultStartTime>08:00:00</DefaultStartTime><DefaultFinishTime>17:00:00</DefaultFinishTime>'
+    +'<MinutesPerDay>480</MinutesPerDay><MinutesPerWeek>2400</MinutesPerWeek><DaysPerMonth>20</DaysPerMonth>'
+    +'<DefaultTaskType>1</DefaultTaskType><DurationFormat>7</DurationFormat><WorkFormat>2</WorkFormat>'
+    +'<HonorConstraints>0</HonorConstraints><NewTasksEffortDriven>0</NewTasksEffortDriven><NewTasksAreManual>0</NewTasksAreManual>'
+    +'<Calendars><Calendar><UID>1</UID><Name>'+esc(('GestãoCampo – '+pj.nome).slice(0,50).trim())+'</Name><IsBaseCalendar>1</IsBaseCalendar><IsBaselineCalendar>0</IsBaselineCalendar><BaseCalendarUID>-1</BaseCalendarUID>'
+    +'<WeekDays>'+semana+'</WeekDays><Exceptions>'+faixas(feriados,false)+faixas(pj.diasExtras||[],true)+'</Exceptions></Calendar></Calendars>'
+    +'<Tasks>'+tarefas.join('')+'</Tasks>'
+    +'<Resources><Resource><UID>0</UID><ID>0</ID><Type>1</Type><IsNull>0</IsNull></Resource>'+recursos.join('')+'</Resources>'
+    +'<Assignments>'+atrib.join('')+'</Assignments></Project>';
+  return {xml,n:T.seq.length};
+}
+// ── Importação de cronograma (MS Project .mpp/.xml, ou .json gerado a partir de planilha) ──
 function importarCronogramaArquivo(inp){
   if(_bloquearSeVisualizador())return;
   const f=inp.files&&inp.files[0];inp.value='';if(!f)return;
-  const rd=new FileReader();
-  rd.onload=()=>{try{_importarCronograma(JSON.parse(rd.result));}catch(e){console.error(e);notif('Arquivo de cronograma inválido: '+e.message,'er');}};
-  rd.readAsText(f,'utf-8');
+  _lerArquivoCronograma(f,dados=>{try{_importarCronograma(dados);}catch(e){console.error(e);notif('Arquivo de cronograma inválido: '+e.message,'er');}});
 }
 function _importarCronograma(dados){
   if(!dados||dados.formato!=='gestaocampo-cronograma'||!Array.isArray(dados.atividades))throw new Error('formato não reconhecido');
   const P=dados.projeto||{};
   if(!P.nome)throw new Error('projeto sem nome');
+  if(dados.manterDatasArquivo){
+    const sel=document.getElementById('filAtPj')?.value;const ps=sel?S.projetos.find(x=>x.id==sel):null;
+    if(ps&&_projectNorm(ps.nome)!==_projectNorm(P.nome)&&confirm('📥 Cronograma do MS Project: "'+P.nome+'" ('+dados.atividades.length+' linhas)\n\nOK = importar no projeto selecionado "'+ps.nome+'"\nCancelar = usar/criar o projeto "'+P.nome+'"'))P.nome=ps.nome;
+  }
   let pj=S.projetos.find(x=>(x.nome||'').trim().toLowerCase()===P.nome.trim().toLowerCase());
   if(pj&&S.atividades.some(a=>String(a.projetoId)===String(pj.id))){
     if(!_projetoPermitido(pj.id)){notif('Sem acesso a este projeto','er');return;}
@@ -14326,6 +14795,7 @@ function _importarCronograma(dados){
     S.projetos.push(pj);
   }
   if(P.diasExtras&&pj.diasExtras!==P.diasExtras){pj.diasExtras=pj.diasExtras||[];P.diasExtras.forEach(x=>{if(!pj.diasExtras.some(y=>y.data===x.data))pj.diasExtras.push(x);});}
+  if(dados.manterDatasArquivo&&Array.isArray(P.feriados)&&pj.feriados!==P.feriados){pj.feriados=pj.feriados||[];P.feriados.forEach(x=>{if(!pj.feriados.some(y=>y.data===x.data))pj.feriados.push(x);});}
   const base=Date.now()+1;const mapa=new Map();
   const ordemIni=S.atividades.filter(a=>String(a.projetoId)===String(pj.id)&&!a.parentId).length;
   dados.atividades.forEach((x,i)=>mapa.set(x.ref,base+i));
@@ -14334,23 +14804,30 @@ function _importarCronograma(dados){
     const a={id:mapa.get(x.ref),nome:x.nome,projetoId:pj.id,setor:x.setor||'',desc:x.desc||'',disciplina:x.disciplina||'',
       inicio:x.inicio||'',fim:x.fim||'',parentId:x.pai?mapa.get(x.pai)||null:null,ordem:(x.pai?i+1:ordemIni+i+1),
       predecessoras:(x.predecessoras||[]).filter(p=>mapa.has(p.ref)).map(p=>({id:mapa.get(p.ref),tipo:p.tipo||'TI',lag:p.lag||0,...(p.corrido?{corrido:true}:{})})),
-      responsaveis:[],status:'Planejada',pct:0,inicioReal:null,terminoReal:null,interferencia:{houve:false},importRef:x.ref,
+      responsaveis:Array.isArray(x.responsaveis)?x.responsaveis.slice():[],status:x.status||'Planejada',pct:Math.max(0,Math.min(100,+x.pct||0)),inicioReal:x.inicioReal||null,terminoReal:x.terminoReal||null,interferencia:{houve:false},importRef:x.ref,
       criadoEm:agora,_upTs:Date.now(),_upBy:S.currentUser||null};
     if(a.inicio&&a.fim)a.duracao=a.inicio===a.fim&&x.marco?0:Math.max(1,cal.dias(a.inicio,a.fim));
     a.baseline={inicioOriginal:a.inicio||null,fimOriginal:a.fim||null,criadoEm:agora,revisoes:[]};
     return a;
   });
   const lista=S.atividades.concat(novas);
+  const fix=dados.manterDatasArquivo?_cronoFixarDatasArquivo(lista,pj.id,novas.map(a=>a.id)):null;
   const r=_cronoAgendar(lista,pj.id,false);
   if(!r.ok){notif(r.erro,'er');return;}
   // Confere se o encadeamento reproduziu as datas do arquivo
   const dif=dados.atividades.filter(x=>x.inicio&&x.fim).filter(x=>{const a=lista.find(y=>y.id===mapa.get(x.ref));return a&&(a.inicio!==x.inicio||a.fim!==x.fim);});
   if(dif.length&&!confirm(dif.length+' linha(s) ficaram com datas diferentes do arquivo depois do encadeamento das predecessoras (ex.: '+dif[0].nome+').\n\nImportar mesmo assim?'))return;
   _cronoBaseIgualAtual(lista,pj.id);
+  // Linha de base gravada no arquivo do Project (quando existir)
+  if(dados.atividades.some(x=>x.linhaBase)){
+    dados.atividades.forEach(x=>{if(!x.linhaBase||!x.linhaBase.inicio)return;const a=lista.find(y=>y.id===mapa.get(x.ref));if(!a||a.resumo)return;garantirBaseline(a);a.baseline.inicioOriginal=x.linhaBase.inicio;a.baseline.fimOriginal=x.linhaBase.fim||x.linhaBase.inicio;});
+    _cronoAgendar(lista,pj.id,true);
+  }
   S.atividades=lista;
   save();popSelects();renderProj();
-  log('Cronograma importado: '+novas.length+' linha(s) no projeto '+pj.nome+(dados.origem?' (origem: '+dados.origem+')':''),'📥');
-  notif('📥 Cronograma importado: '+novas.length+' linha(s) em "'+pj.nome+'"');
+  log('Cronograma importado: '+novas.length+' linha(s) no projeto '+pj.nome+(dados.origem?' (origem: '+dados.origem+')':'')+(fix&&fix.ajustes?' — '+fix.ajustes+' vínculo(s) em horas convertidos para dias':''),'📥');
+  notif('📥 Cronograma importado: '+novas.length+' linha(s) em "'+pj.nome+'"'+(dif.length?'':' — datas idênticas ao arquivo'));
+  if(dados.avisos&&dados.avisos.length)setTimeout(()=>notif('ℹ️ '+dados.avisos.join(' · '),'wn'),1200);
   go('atividades');
   const fil=document.getElementById('filAtPj');if(fil){fil.value=String(pj.id);if(typeof setPjAtual==='function')setPjAtual(fil.value);}
   const fs=document.getElementById('filAtSt');if(fs)fs.value='';
@@ -14388,16 +14865,17 @@ function _atualizarCronogramaExistente(pj,dados){
         const id=mapa.get(x.ref);let a=lista.find(y=>y.id===id);
         if(!a){
           a={id,nome:x.nome,projetoId:pj.id,setor:x.setor||'',desc:x.desc||'',disciplina:'',inicio:x.inicio||'',fim:x.fim||'',
-            responsaveis:[],status:'Planejada',pct:0,inicioReal:null,terminoReal:null,interferencia:{houve:false},criadoEm:agora,_novo:true};
-          if(a.inicio&&a.fim)a.duracao=Math.max(1,cal.dias(a.inicio,a.fim));
+            responsaveis:Array.isArray(x.responsaveis)?x.responsaveis.slice():[],status:x.status||'Planejada',pct:Math.max(0,Math.min(100,+x.pct||0)),inicioReal:x.inicioReal||null,terminoReal:x.terminoReal||null,interferencia:{houve:false},criadoEm:agora,_novo:true};
+          if(a.inicio&&a.fim)a.duracao=a.inicio===a.fim&&x.marco?0:Math.max(1,cal.dias(a.inicio,a.fim));
           lista.push(a);
-        } else if(dados.atualizarDatas&&x.inicio&&x.fim){a.inicio=x.inicio;a.fim=x.fim;a.duracao=Math.max(1,cal.dias(x.inicio,x.fim));}
+        } else if(dados.atualizarDatas&&x.inicio&&x.fim){a.inicio=x.inicio;a.fim=x.fim;a.duracao=x.inicio===x.fim&&x.marco?0:Math.max(1,cal.dias(x.inicio,x.fim));if(dados.manterDatasArquivo)a.inicioMin=null;}
         a.importRef=x.ref;
         a.parentId=x.pai?mapa.get(x.pai)||null:null;
         a.ordem=i+1;
         a.predecessoras=pred(x);
         a._upTs=Date.now();a._upBy=S.currentUser||null;
       });
+      if(dados.manterDatasArquivo)_cronoFixarDatasArquivo(lista,pj.id,dados.atividades.map(x=>mapa.get(x.ref)));
     },
     aoConcluir:()=>{
       save();popSelects();
