@@ -14366,7 +14366,9 @@ const MPPReader=(()=>{
   function fixedBlock(c,dir,which,isz){
     const meta=c.read(c.find(dir+'/Fixed'+which+'Meta')),data=c.read(c.find(dir+'/Fixed'+which+'Data'));
     if(!meta||!data)return [];
-    const n=DV(meta).getUint32(8,true);const size=isz||Math.floor((meta.length-16)/Math.max(1,n));
+    const n=DV(meta).getUint32(8,true);
+    // tamanho do registro fixo do formato (o bloco pode ter bytes sobrando no fim); se não couber, estima
+    const size=(isz&&16+isz*n<=meta.length)?isz:Math.floor((meta.length-16)/Math.max(1,n));
     const items=[];for(let i=0;i<n;i++){const o=16+i*size;if(o+8>meta.length)break;items.push({i,meta:meta.subarray(o,o+size),off:DV(meta).getUint32(o+4,true)});}
     const offs=[...new Set(items.map(x=>x.off))].sort((a,b)=>a-b);
     items.forEach(x=>{const k=offs.indexOf(x.off);const e=k+1<offs.length?offs[k+1]:data.length;x.data=x.off<data.length?data.subarray(x.off,e):new Uint8Array(0);});
@@ -14410,7 +14412,7 @@ const MPPReader=(()=>{
     const tb=tg(0,0x0e);if(tb)titulo=utf16(tb);
     // tarefas
     const tarefas=[];const vistos=new Set();
-    const bloco2=fixedBlock(c,R+'/TBkndTask','2',null);
+    const bloco2=fixedBlock(c,R+'/TBkndTask','2',96);
     for(const it of fixedBlock(c,R+'/TBkndTask','',47)){
       const d=it.data;if(d.length<OFF.fim+4||(it.meta[0]&0x06))continue;
       const uid=i32(d,OFF.uid);if(uid==null||uid<0||vistos.has(uid))continue;vistos.add(uid);
@@ -14431,7 +14433,7 @@ const MPPReader=(()=>{
     const porUid=new Map(tarefas.map(t=>[t.uid,t]));
     // vínculos
     const tipos={0:'FF',1:'FS',2:'SF',3:'SS'};
-    for(const it of fixedBlock(c,R+'/TBkndCons','',null)){
+    for(const it of fixedBlock(c,R+'/TBkndCons','',10)){
       const d=it.data;if(d.length<20||(it.meta[0]&0x02))continue;
       const p=i32(d,4),s=i32(d,8);const suc=porUid.get(s);if(!suc||!porUid.has(p)||p===s)continue;
       const un=u16(d,18);const lag=Math.round(i32(d,14)/10);
@@ -14441,7 +14443,7 @@ const MPPReader=(()=>{
     // recursos e atribuições
     const rv=varData(c,R+'/TBkndRsc');const recursos=new Map();
     for(const [k,b] of rv){const [uid,type]=k.split(':').map(Number);if(type===0x0C400001&&uid>0){const n=utf16(b).trim();if(n)recursos.set(uid,n);}}
-    for(const it of fixedBlock(c,R+'/TBkndAssn','',null)){
+    for(const it of fixedBlock(c,R+'/TBkndAssn','',34)){
       const d=it.data;if(d.length<12||(it.meta[0]&0x02))continue;
       const t=porUid.get(i32(d,4)),r=recursos.get(i32(d,8));if(t&&r&&!t.recursos.includes(r))t.recursos.push(r);
     }
