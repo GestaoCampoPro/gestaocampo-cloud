@@ -15259,15 +15259,29 @@ function _atualizarCronogramaExistente(pj,dados){
   const camEx=a=>[..._cronoAncestrais(T.info,a.id).reverse().map(id=>norm(T.porId.get(id)?.nome)),norm(a.nome)].join(' > ');
   const existentes=T.seq;
   const porCam=new Map();existentes.forEach(a=>{const k=camEx(a);porCam.set(k,porCam.has(k)?null:a);});
-  const mapa=new Map();let casadas=0;
+  // Casamento das linhas: a referência do arquivo (UID do Project) só vale com o mesmo nome — arquivos
+  // diferentes reaproveitam UIDs para outras tarefas; depois, caminho macro > nome. Cada atividade casa uma vez só.
+  const mapa=new Map(),usadas=new Set();let casadas=0;
   dados.atividades.forEach(x=>{
-    const a=existentes.find(e=>e.importRef===x.ref)||porCam.get(camArq(x));
-    if(a){mapa.set(x.ref,a.id);casadas++;}
+    const livre=e=>e&&!usadas.has(e.id);
+    let a=existentes.find(e=>livre(e)&&e.importRef===x.ref&&norm(e.nome)===norm(x.nome));
+    if(!a){const c=porCam.get(camArq(x));if(livre(c))a=c;}
+    if(a){mapa.set(x.ref,a.id);usadas.add(a.id);casadas++;}
   });
   const novasRefs=dados.atividades.filter(x=>!mapa.has(x.ref));
   let nId=Date.now()+1;novasRefs.forEach(x=>mapa.set(x.ref,nId++));
   const nVinc=dados.atividades.reduce((n,x)=>n+(x.predecessoras||[]).length,0);
+  // Linhas do cronograma atual que não existem no arquivo (só no cronograma completo do MS Project)
+  const sobras=dados.manterDatasArquivo?existentes.filter(e=>!usadas.has(e.id)):[];
+  const comAvanco=e=>(+e.pct||0)>0||!!e.inicioReal||!!e.terminoReal;
+  const sobrasRemover=sobras.filter(e=>!comAvanco(e)),sobrasManter=sobras.filter(comAvanco);
   if(!confirm('🔄 ATUALIZAR CRONOGRAMA — '+pj.nome+'\n\n• '+casadas+' atividade(s) existentes recebem estrutura e vínculos do arquivo ('+nVinc+' vínculos)\n• '+novasRefs.length+' atividade(s) nova(s) serão incluídas'+((dados.projeto&&dados.projeto.feriados&&dados.projeto.feriados.length)?'\n• '+dados.projeto.feriados.length+' feriado(s)/recesso entram no calendário do projeto':'')+'\n• Status, %, datas reais e responsáveis são mantidos'+(dados.atualizarDatas?'\n• Datas planejadas serão substituídas pelas do arquivo':'')+'\n\nContinuar?'))return;
+  let removerIds=new Set();
+  if(sobras.length){
+    const ex=sobras.slice(0,6).map(e=>'  – '+e.nome).join('\n')+(sobras.length>6?'\n  …':'');
+    if(confirm('🧹 '+sobras.length+' atividade(s) do cronograma atual não existem no arquivo:\n'+ex+'\n\nOK = remover'+(sobrasManter.length?' as '+sobrasRemover.length+' sem avanço (as '+sobrasManter.length+' com % ou datas reais ficam, sem vínculos)':'')+'\nCancelar = manter todas (podem empurrar o término)'))
+      removerIds=new Set(sobrasRemover.map(e=>e.id));
+  }
   const cal=_cronoCal(pj.id),agora=new Date().toISOString();
   const pred=x=>(x.predecessoras||[]).filter(p=>mapa.has(p.ref)).map(p=>({id:mapa.get(p.ref),tipo:p.tipo||'TI',lag:p.lag||0,...(p.corrido?{corrido:true}:{})}));
   if(dados.projeto&&Array.isArray(dados.projeto.diasExtras)){pj.diasExtras=pj.diasExtras||[];dados.projeto.diasExtras.forEach(x=>{if(!pj.diasExtras.some(y=>y.data===x.data))pj.diasExtras.push(x);});}
@@ -15276,6 +15290,14 @@ function _atualizarCronogramaExistente(pj,dados){
     if(Array.isArray(pj.diasExtras))pj.diasExtras=pj.diasExtras.filter(e=>!dados.projeto.feriados.some(f=>f.data===e.data));}
   _cronoAplicar({pjId:pj.id,origemNome:pj.nome,descricao:'Atualização do cronograma por arquivo',categoriaSugerida:'Erro de Planejamento',
     mutar:lista=>{
+      if(removerIds.size){
+        for(let i=lista.length-1;i>=0;i--)if(removerIds.has(lista[i].id))lista.splice(i,1);
+        lista.forEach(a=>{if(String(a.projetoId)!==String(pj.id))return;
+          if(Array.isArray(a.predecessoras))a.predecessoras=a.predecessoras.filter(p=>!removerIds.has(p.id));
+          if(a.parentId&&removerIds.has(a.parentId))a.parentId=null;});
+        // as que ficaram (com avanço) não amarram mais o cronograma do arquivo
+        sobrasManter.forEach(e=>{const a=lista.find(y=>y.id===e.id);if(a)a.predecessoras=[];});
+      }
       dados.atividades.forEach((x,i)=>{
         const id=mapa.get(x.ref);let a=lista.find(y=>y.id===id);
         if(!a){
@@ -15285,6 +15307,7 @@ function _atualizarCronogramaExistente(pj,dados){
           lista.push(a);
         } else if(dados.atualizarDatas&&x.inicio&&x.fim){a.inicio=x.inicio;a.fim=x.fim;a.duracao=x.inicio===x.fim&&x.marco?0:Math.max(1,cal.dias(x.inicio,x.fim));if(dados.manterDatasArquivo)a.inicioMin=null;}
         a.importRef=x.ref;
+        if(x.nome)a.nome=x.nome;
         a.parentId=x.pai?mapa.get(x.pai)||null:null;
         a.ordem=i+1;
         a.predecessoras=pred(x);
@@ -15295,7 +15318,7 @@ function _atualizarCronogramaExistente(pj,dados){
     aoConcluir:()=>{
       save();popSelects();
       const fim=S.atividades.filter(a=>String(a.projetoId)===String(pj.id)&&!a.resumo&&a.fim).map(a=>a.fim).sort().pop();
-      log('Cronograma atualizado por arquivo: '+pj.nome+' ('+casadas+' atualizadas, '+novasRefs.length+' novas, '+nVinc+' vínculos)'+(dados.origem?' — '+dados.origem:''),'🔄');
+      log('Cronograma atualizado por arquivo: '+pj.nome+' ('+casadas+' atualizadas, '+novasRefs.length+' novas, '+removerIds.size+' removidas, '+nVinc+' vínculos)'+(dados.origem?' — '+dados.origem:''),'🔄');
       notif('🔄 Cronograma atualizado — término do projeto: '+(fim?fd(fim):'—'));
       go('atividades');
       const fil=document.getElementById('filAtPj');if(fil){fil.value=String(pj.id);if(typeof setPjAtual==='function')setPjAtual(fil.value);}
