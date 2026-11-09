@@ -2573,12 +2573,14 @@ html[data-glass] .rs-opt{background:var(--glass-strong);border-color:var(--glass
   <!-- ORGANOGRAMA -->
   <div class="pg" id="pg-organograma">
     <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
-      <select class="fi" style="width:220px;margin:0;" id="orgPj" onchange="setPjAtual(this.value);renderOrg()"><option value="">Selecione o projeto</option></select>
+      <select class="fi" style="width:220px;margin:0;" id="orgPj" onchange="setPjAtual(this.value);_orgAutoTipo();renderOrg()"><option value="">Selecione o projeto</option></select>
       <select class="fi" style="width:160px;margin:0;" id="orgTipo" onchange="renderOrg()">
         <option value="classico">📐 Clássico (Vertical)</option>
         <option value="horizontal">📋 Horizontal</option>
+        <option value="manual">✏️ Montado (manual)</option>
       </select>
       <button class="btn prim" onclick="renderOrg()">🔄 Atualizar</button>
+      <button class="btn" onclick="orgNovo()" title="Montar o organograma escolhendo as pessoas e quem responde a quem">➕ Novo organograma</button>
       <button class="btn" onclick="imprimirOrg()">🖨️ Imprimir</button>
     </div>
     <div id="orgContent">
@@ -4244,6 +4246,7 @@ function go(id,btn){
     const pjAtu=getPjAtual();
     const elO=document.getElementById('orgPj');
     if(elO&&pjAtu&&S.projetos.find(p=>String(p.id)===pjAtu)){elO.value=pjAtu;}
+    _orgAutoTipo();
     renderOrg();
   }
   if(id==='config'){renderFuncList();}
@@ -10413,9 +10416,14 @@ function renderOrg(){
   const proj=S.projetos.find(p=>p.id==pjId);
   if(!proj){el.innerHTML='<div class="empty"><p>Projeto não encontrado</p></div>';return;}
 
+  // Organograma montado manualmente (editor aberto ou modo "Montado")
+  if(_ORG_ED&&String(_ORG_ED.pjId)===String(pjId)){el.innerHTML=_orgEdHTML();return;}
+  _ORG_ED=null;
+  if((document.getElementById('orgTipo')?.value)==='manual'){el.innerHTML=_orgManualViewHTML(proj);return;}
+
   const cols=S.colaboradores.filter(c=>c.projeto==pjId&&c.status!=='Desligado');
   if(!cols.length){
-    el.innerHTML='<div class="empty" style="padding:60px;"><div class="ei">👷</div><p>Nenhum colaborador ativo neste projeto</p></div>';
+    el.innerHTML='<div class="empty" style="padding:60px;"><div class="ei">👷</div><p>Nenhum colaborador ativo neste projeto</p><p style="font-size:11px;color:var(--t3);margin-top:6px;">Monte o organograma escolhendo pessoas de outros projetos ou criando vagas.</p><button class="btn prim" style="margin-top:12px;" onclick="orgNovo()">➕ Novo organograma</button></div>';
     return;
   }
 
@@ -10531,11 +10539,416 @@ function renderOrg(){
   el.innerHTML=html;
 }
 
+// ── Organograma montado manualmente (S.organogramas[pjId] = {nos:[{id,colabId,nome,funcao,pai,vaga}], atualizadoEm, por}) ──
+let _ORG_ED=null;
+let _orgFit=true; // organograma cabe na largura da tela (false = tamanho real com rolagem)
+function orgZoom(){_orgFit=!_orgFit;renderOrg();}
+(function(){try{const st=document.createElement('style');st.textContent='.org-wrap.fit svg.org-arvore{max-width:100%;height:auto;}';document.head.appendChild(st);}catch(e){}})(); // editor em andamento: {pjId, nos, sel, busca, outros, drag}
+function _orgEsc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _orgNovoId(){return 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function _orgSalvo(pjId){const o=(S.organogramas||{})[pjId];return o&&Array.isArray(o.nos)&&o.nos.length?o:null;}
+function _orgAutoTipo(){
+  const pj=document.getElementById('orgPj')?.value, sel=document.getElementById('orgTipo');
+  if(!sel)return;
+  if(pj&&_orgSalvo(pj))sel.value='manual'; else if(sel.value==='manual')sel.value='classico';
+}
+// Dados de exibição de um nó (colaborador vivo ou snapshot / vaga)
+function _orgNoInfo(n){
+  const c=n.colabId!=null?S.colaboradores.find(x=>String(x.id)===String(n.colabId)):null;
+  const nome=c?c.nome:(n.nome||'');
+  const funcao=c?(c.funcao||''):(n.funcao||'');
+  _migrarFuncoes();
+  const h=HIERARQUIA.getInfo(funcao,S.funcoes);
+  const foto=n.fotoRem?null:(n.foto||(c&&c.foto)||null);
+  return {nome,funcao,foto,cor:h.cor||'#7a96b4',prio:h.prio,vaga:!c&&!n.colabId,status:c?c.status:'',desligado:c&&c.status==='Desligado',sumiu:n.colabId!=null&&!c};
+}
+function _orgFilhos(nos,id){return nos.filter(n=>(n.pai??null)===id);}
+function _orgRaizes(nos){const ids=new Set(nos.map(n=>n.id));return nos.filter(n=>n.pai==null||!ids.has(n.pai));}
+function _orgDescendentes(nos,id){const out=new Set();const st=[id];while(st.length){const x=st.pop();nos.forEach(n=>{if(n.pai===x&&!out.has(n.id)){out.add(n.id);st.push(n.id);}});}return out;}
+function _orgEquipeProjeto(pjId){return S.colaboradores.filter(c=>String(c.projeto)===String(pjId)&&c.status!=='Desligado');}
+
+// ── Desenho SVG da árvore (estilo cartão com foto redonda; equipes grandes de "folhas" empilham em coluna) ──
+function _orgCorTexto(hex){const m=/^#?([0-9a-f]{6})$/i.exec(hex||'');if(!m)return '#fff';const v=parseInt(m[1],16);const r=v>>16,g=(v>>8)&255,b=v&255;return (0.299*r+0.587*g+0.114*b)>160?'#0b1220':'#ffffff';}
+let _orgSvgSeq=0;
+function _orgFotoSVG(cx,cy,r,foto,cor,vaga){
+  const id='ofc'+(++_orgSvgSeq);
+  const ring=`<circle cx="${cx}" cy="${cy}" r="${r+3}" fill="#ffffff" stroke="${cor}" stroke-width="2.5"${vaga?' stroke-dasharray="5 4"':''}/>`;
+  if(foto)return ring+`<clipPath id="${id}"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath><image href="${foto}" x="${cx-r}" y="${cy-r}" width="${r*2}" height="${r*2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id})"/>`;
+  // sem foto: boneco em branco (desenho)
+  const k=r/30;
+  return ring+`<clipPath id="${id}"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath><g clip-path="url(#${id})">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="#eef2f7"/>
+    <circle cx="${cx}" cy="${cy-6*k}" r="${10*k}" fill="none" stroke="#9aa8ba" stroke-width="${2.2*k}"/>
+    <path d="M${cx-19*k} ${cy+30*k} C${cx-19*k} ${cy+12*k} ${cx-11*k} ${cy+7*k} ${cx} ${cy+7*k} C${cx+11*k} ${cy+7*k} ${cx+19*k} ${cy+12*k} ${cx+19*k} ${cy+30*k}" fill="none" stroke="#9aa8ba" stroke-width="${2.2*k}"/></g>`;
+}
+function _orgManualSVG(nos){
+  const BW=168,BH=100,HG=20,VG=46,IND=26,SG=10,CW=196,CH=48;
+  const kids=id=>_orgFilhos(nos,id);
+  const stacked=n=>{const k=kids(n.id);return k.length>=4&&k.every(c=>!kids(c.id).length);};
+  const W=new Map();
+  const measure=n=>{const k=kids(n.id);let w;
+    if(!k.length)w=BW; else if(stacked(n))w=Math.max(BW,IND+CW);
+    else w=Math.max(BW,k.reduce((s,c)=>s+measure(c),0)+HG*(k.length-1));
+    W.set(n.id,w);return w;};
+  const P=new Map();let maxY=0;
+  const place=(n,x0,y)=>{const w=W.get(n.id),k=kids(n.id);
+    if(k.length&&stacked(n)){P.set(n.id,{x:x0,y});
+      k.forEach((c,i)=>{const cy=y+BH+SG*2+i*(CH+SG);P.set(c.id,{x:x0+IND,y:cy,compacto:true});maxY=Math.max(maxY,cy+CH);});
+    }else{const x=x0+(w-BW)/2;P.set(n.id,{x,y});maxY=Math.max(maxY,y+BH);
+      if(k.length){const tot=k.reduce((s,c)=>s+W.get(c.id),0)+HG*(k.length-1);let cx=x0+(w-tot)/2;
+        k.forEach(c=>{place(c,cx,y+BH+VG);cx+=W.get(c.id)+HG;});}}
+  };
+  const roots=_orgRaizes(nos);let x=16;
+  roots.forEach(r=>{measure(r);place(r,x,10);x+=W.get(r.id)+HG*2;});
+  const totalW=Math.max(x-HG*2+16,400), totalH=maxY+14;
+  let lines='',boxes='';
+  const ln=(x1,y1,x2,y2,cor)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${cor}" stroke-width="2" stroke-linecap="round"/>`;
+  nos.forEach(n=>{const p=P.get(n.id);if(!p)return;const k=kids(n.id);if(!k.length)return;
+    const cor=_orgNoInfo(n).cor;
+    if(stacked(n)){const xl=p.x+IND/2+2,last=P.get(k[k.length-1].id);
+      lines+=ln(xl,p.y+BH,xl,last.y+CH/2,cor);
+      k.forEach(c=>{const q=P.get(c.id);lines+=ln(xl,q.y+CH/2,q.x+4,q.y+CH/2,_orgNoInfo(c).cor);});
+    }else{const cx=p.x+BW/2,ym=p.y+BH+VG/2;const cxs=k.map(c=>P.get(c.id).x+BW/2);
+      lines+=ln(cx,p.y+BH,cx,ym,cor);
+      lines+=ln(Math.min(cx,...cxs),ym,Math.max(cx,...cxs),ym,cor);
+      k.forEach((c,i)=>{lines+=ln(cxs[i],ym,cxs[i],P.get(c.id).y,_orgNoInfo(c).cor);});}
+  });
+  const corta=(s,n)=>s.length>n?s.slice(0,n-1)+'…':s;
+  const nomeCurto=nm=>{const pt=String(nm||'').trim().split(/\s+/).filter(Boolean);return pt.length>2?pt[0]+' '+pt[pt.length-1]:pt.join(' ');};
+  nos.forEach(n=>{const p=P.get(n.id);if(!p)return;const i=_orgNoInfo(n);
+    const nome=i.vaga?(i.nome||'A definir'):nomeCurto(i.nome);
+    const tc=_orgCorTexto(i.cor), dash=i.vaga?' stroke-dasharray="5 4"':'';
+    const tip=`<title>${_orgEsc(i.nome||'Vaga')}${i.funcao?' — '+_orgEsc(i.funcao):''}</title>`;
+    if(p.compacto){ // cartão horizontal (pílula) com foto à esquerda
+      const cy=p.y+CH/2;
+      boxes+=`<g>${tip}<rect x="${p.x+22}" y="${p.y+4}" width="${CW-22}" height="${CH-8}" rx="${(CH-8)/2}" style="fill:var(--bg3,#13233a)" stroke="${i.cor}" stroke-width="1.5"${dash}/>`+
+        `<rect x="${p.x+48}" y="${cy+1}" width="${CW-60}" height="13" rx="6.5" fill="${i.cor}"/>`+
+        _orgFotoSVG(p.x+22,cy,19,i.foto,i.cor,i.vaga)+
+        `<text x="${p.x+50}" y="${cy-4}" font-family="Inter,sans-serif" font-size="11" font-weight="700" style="fill:var(--t1,#e8edf5)">${_orgEsc(corta(nome,20))}</text>`+
+        `<text x="${p.x+54}" y="${cy+11}" font-family="Inter,sans-serif" font-size="8.5" font-weight="700" fill="${tc}">${_orgEsc(corta(i.funcao||'—',25))}</text></g>`;
+      return;
+    }
+    const cx=p.x+BW/2, R=27, cardY=p.y+R*2-6, cardH=BH-(R*2-6);
+    boxes+=`<g>${tip}`+
+      `<rect x="${p.x+6}" y="${cardY}" width="${BW-12}" height="${cardH}" rx="10" fill="${i.cor}"${dash?` stroke="${i.cor}"`:''}/>`+
+      `<path d="M${p.x+6} ${cardY+10} a10 10 0 0 1 10 -10 h${BW-32} a10 10 0 0 1 10 10 v${cardH-26} h-${BW-12} z" style="fill:var(--bg3,#13233a)"/>`+
+      `<rect x="${p.x+6}" y="${cardY}" width="${BW-12}" height="${cardH}" rx="10" fill="none" stroke="${i.cor}" stroke-width="1.5"${dash}/>`+
+      _orgFotoSVG(cx,p.y+R+3,R,i.foto,i.cor,i.vaga)+
+      `<text x="${cx}" y="${cardY+cardH-22}" text-anchor="middle" font-family="Inter,sans-serif" font-size="11.5" font-weight="700" style="fill:var(--t1,#e8edf5)">${_orgEsc(corta(nome,22))}</text>`+
+      `<text x="${cx}" y="${cardY+cardH-4.5}" text-anchor="middle" font-family="Inter,sans-serif" font-size="9.5" font-weight="700" fill="${tc}">${_orgEsc(corta(i.funcao||'—',26))}</text>`+
+      `</g>`;
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}" class="org-arvore" style="display:block;margin:0 auto;overflow:visible;">${lines}${boxes}</svg>`;
+}
+
+// ── Fotos: guardadas no colaborador (c.foto) ou na vaga (n.foto), reduzidas a 112px JPEG ──
+function _orgLerFoto(cb){
+  const inp=document.createElement('input');inp.type='file';inp.accept='image/*';
+  inp.onchange=()=>{const f=inp.files&&inp.files[0];if(!f)return;
+    const rd=new FileReader();rd.onload=()=>{const img=new Image();img.onload=()=>{
+      const T=112,cv=document.createElement('canvas');cv.width=T;cv.height=T;const g=cv.getContext('2d');
+      const s=Math.min(img.width,img.height);g.fillStyle='#fff';g.fillRect(0,0,T,T);
+      g.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,T,T);
+      cb(cv.toDataURL('image/jpeg',0.8));};
+      img.onerror=()=>notif('Não foi possível ler a imagem','er');img.src=rd.result;};
+    rd.readAsDataURL(f);};
+  inp.click();
+}
+function orgEdFoto(id){
+  const n=_ORG_ED?.nos.find(x=>x.id===id);if(!n)return;
+  _orgLerFoto(url=>{n.foto=url;n.fotoRem=false;_orgEdRefresh();});
+}
+function orgEdFotoRem(id){
+  const n=_ORG_ED?.nos.find(x=>x.id===id);if(!n)return;
+  n.foto=null;n.fotoRem=true;_orgEdRefresh();
+}
+
+// ── Visualização do organograma salvo ──
+function _orgManualViewHTML(proj){
+  const org=_orgSalvo(proj.id);
+  if(!org){
+    return `<div class="empty" style="padding:60px;"><div class="ei">🏢</div><p>Este projeto ainda não tem organograma montado</p>
+      <button class="btn prim" style="margin-top:12px;" onclick="orgNovo()">➕ Novo organograma</button></div>`;
+  }
+  const nPess=org.nos.filter(n=>n.colabId!=null).length, nVag=org.nos.length-nPess;
+  const quando=org.atualizadoEm?new Date(org.atualizadoEm).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+  const fora=org.nos.filter(n=>{const i=_orgNoInfo(n);return i.desligado||i.sumiu;}).length;
+  return `<div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--ac);">🏗️ ${_orgEsc(proj.nome)}</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px;">Organograma montado · ${nPess} pessoa${nPess!==1?'s':''}${nVag?` · ${nVag} vaga${nVag!==1?'s':''}`:''}${quando?` · atualizado em ${quando}`:''}</div>
+          ${fora?`<div style="font-size:11px;color:var(--yl);margin-top:4px;">⚠️ ${fora} pessoa${fora!==1?'s':''} do organograma está desligada ou foi excluída — edite para ajustar.</div>`:''}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" onclick="orgZoom()" title="Alterna entre caber na tela e tamanho real">${_orgFit?'🔍 Tamanho real':'🔍 Ajustar à tela'}</button>
+          <button class="btn prim" onclick="orgEditar()">✏️ Editar organograma</button>
+          <button class="btn dang" onclick="orgExcluir()">🗑️ Excluir</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="padding:20px;"><div class="org-wrap${_orgFit?' fit':''}" style="overflow-x:auto;">${_orgManualSVG(org.nos)}</div></div>`;
+}
+
+// ── Editor ──
+function orgNovo(){
+  const pjId=document.getElementById('orgPj')?.value;
+  if(!pjId){notif('Selecione um projeto','wn');return;}
+  if(_orgSalvo(pjId)&&!confirm('Este projeto já tem um organograma montado. Começar um novo do zero?\n\n(Para alterar o atual, use "Editar organograma".)'))return;
+  const equipe=_orgEquipeProjeto(pjId);
+  _ORG_ED={pjId,nos:[],sel:null,busca:'',outros:!equipe.length};
+  if(equipe.length)_orgEdAuto(true);
+  renderOrg();
+}
+function orgEditar(){
+  const pjId=document.getElementById('orgPj')?.value;const org=_orgSalvo(pjId);
+  if(!org){orgNovo();return;}
+  _ORG_ED={pjId,nos:JSON.parse(JSON.stringify(org.nos)),sel:null,busca:'',outros:!_orgEquipeProjeto(pjId).length};
+  renderOrg();
+}
+function orgExcluir(){
+  const pjId=document.getElementById('orgPj')?.value;
+  if(!_orgSalvo(pjId))return;
+  if(!confirm('Excluir o organograma montado deste projeto? Esta ação não pode ser desfeita.'))return;
+  const nome=S.projetos.find(p=>String(p.id)===String(pjId))?.nome||'';
+  delete S.organogramas[pjId];save();log('Organograma excluído: '+nome,'🏢');
+  document.getElementById('orgTipo').value='classico';renderOrg();notif('Organograma excluído');
+}
+function orgEdCancelar(){
+  if(_ORG_ED&&_ORG_ED.nos.length&&!confirm('Descartar as alterações do organograma?'))return;
+  _ORG_ED=null;renderOrg();
+}
+function orgEdSalvar(){
+  const ed=_ORG_ED;if(!ed)return;
+  if(!ed.nos.length){notif('Adicione pelo menos uma pessoa ou vaga','wn');return;}
+  // grava snapshot de nome/função para não perder o desenho se o colaborador for excluído
+  // fotos de colaboradores ficam no cadastro do colaborador (reaproveitadas em outros organogramas)
+  ed.nos.forEach(n=>{if(n.colabId==null)return;const c=S.colaboradores.find(x=>String(x.id)===String(n.colabId));if(!c)return;
+    if(n.foto)c.foto=n.foto; else if(n.fotoRem)delete c.foto;});
+  const nos=ed.nos.map(n=>{const i=_orgNoInfo(n);const o={id:n.id,colabId:n.colabId??null,nome:i.vaga?(n.nome||''):i.nome,funcao:i.funcao,pai:n.pai??null};if(n.colabId==null&&n.foto)o.foto=n.foto;return o;});
+  if(!S.organogramas)S.organogramas={};
+  S.organogramas[ed.pjId]={nos,atualizadoEm:new Date().toISOString(),por:S.currentUser||''};
+  save();
+  const nome=S.projetos.find(p=>String(p.id)===String(ed.pjId))?.nome||'';
+  log('Organograma montado: '+nome+' ('+nos.length+' posições)','🏢');
+  _ORG_ED=null;document.getElementById('orgTipo').value='manual';renderOrg();notif('Organograma salvo');
+}
+// Monta uma estrutura inicial pela hierarquia das funções (Banco de Funções)
+function _orgEdAuto(silencioso){
+  const ed=_ORG_ED;if(!ed)return;
+  if(!silencioso&&ed.nos.length&&!confirm('Substituir a estrutura atual por uma montada automaticamente pela hierarquia das funções?'))return;
+  const equipe=_orgEquipeProjeto(ed.pjId);
+  if(!equipe.length){notif('Nenhum colaborador vinculado a este projeto — adicione pela lista ou crie vagas','wn');return;}
+  _migrarFuncoes();
+  const lst=equipe.map(c=>({c,prio:HIERARQUIA.getInfo(c.funcao,S.funcoes).prio})).sort((a,b)=>a.prio-b.prio||String(a.c.nome).localeCompare(String(b.c.nome)));
+  const niveis=[...new Set(lst.filter(x=>x.prio<99).map(x=>x.prio))];
+  const mk=x=>({id:_orgNovoId(),colabId:x.c.id,pai:null,_f:x.c.funcao||''});
+  const porNivel=niveis.map(p=>lst.filter(x=>x.prio===p).map(mk));
+  const outros=lst.filter(x=>x.prio>=99).map(mk);
+  // especialidade em comum (ex.: Eletricista → Encarregado Elétrico); senão distribui em rodízio
+  const ESP=['eletr','mec','civil','sold','hidr','instr','segur','tubul','pint','caldeir','autom','topog','almox','andaim'];
+  const esp=t=>{t=String(t).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');return ESP.find(k=>t.includes(k))||'';};
+  for(let i=1;i<porNivel.length;i++){
+    const chefes=porNivel[i-1];let rr=0;
+    porNivel[i].forEach(n=>{const e=esp(n._f);const ch=e&&chefes.find(c=>esp(c._f)===e);n.pai=(ch||chefes[rr++%chefes.length]).id;});
+  }
+  // funções sem nível definido ficam abaixo do topo
+  const topo=porNivel.length?porNivel[0][0]:null;
+  outros.forEach(n=>{n.pai=topo?topo.id:null;});
+  ed.nos=porNivel.flat().concat(outros).map(n=>{delete n._f;return n;});ed.sel=null;
+  if(!silencioso)_orgEdRefresh();
+}
+function orgEdAuto(){_orgEdAuto(false);}
+function orgEdLimpar(){
+  if(!_ORG_ED||!_ORG_ED.nos.length)return;
+  if(!confirm('Remover todas as posições da estrutura?'))return;
+  _ORG_ED.nos=[];_ORG_ED.sel=null;_orgEdRefresh();
+}
+function orgEdAddColab(colabId,pai){
+  const ed=_ORG_ED;if(!ed)return;
+  if(ed.nos.some(n=>String(n.colabId)===String(colabId))){notif('Essa pessoa já está no organograma','wn');return;}
+  const p=pai===undefined?ed.sel:pai;
+  ed.nos.push({id:_orgNovoId(),colabId,pai:p&&ed.nos.some(n=>n.id===p)?p:null});
+  _orgEdRefresh();
+}
+function orgEdAddVaga(){
+  const ed=_ORG_ED;if(!ed)return;
+  const f=prompt('Cargo / função da posição (ex.: Encarregado Mecânico):');
+  if(f==null||!f.trim())return;
+  const nm=prompt('Nome de quem ocupa (deixe vazio para "A definir"):','')??'';
+  ed.nos.push({id:_orgNovoId(),colabId:null,nome:nm.trim(),funcao:f.trim(),pai:ed.sel&&ed.nos.some(n=>n.id===ed.sel)?ed.sel:null});
+  _orgEdRefresh();
+}
+function orgEdEditarVaga(id){
+  const n=_ORG_ED?.nos.find(x=>x.id===id);if(!n||n.colabId!=null)return;
+  const f=prompt('Cargo / função:',n.funcao||'');if(f==null)return;
+  const nm=prompt('Nome de quem ocupa (vazio = "A definir"):',n.nome||'');if(nm==null)return;
+  n.funcao=f.trim();n.nome=nm.trim();_orgEdRefresh();
+}
+function orgEdRemover(id){
+  const ed=_ORG_ED;if(!ed)return;const n=ed.nos.find(x=>x.id===id);if(!n)return;
+  ed.nos.forEach(x=>{if(x.pai===id)x.pai=n.pai??null;}); // subordinados sobem um nível
+  ed.nos=ed.nos.filter(x=>x.id!==id);if(ed.sel===id)ed.sel=null;_orgEdRefresh();
+}
+function orgEdSetPai(id,pai){
+  const ed=_ORG_ED;if(!ed)return;const n=ed.nos.find(x=>x.id===id);if(!n)return;
+  pai=pai||null;
+  if(pai===id||(pai&&_orgDescendentes(ed.nos,id).has(pai))){notif('Não é possível subordinar alguém a um dos próprios subordinados','wn');_orgEdRefresh();return;}
+  n.pai=pai;
+  // vai para o fim da lista de irmãos
+  ed.nos=ed.nos.filter(x=>x!==n);ed.nos.push(n);_orgEdRefresh();
+}
+function orgEdMover(id,dir){
+  const ed=_ORG_ED;if(!ed)return;const n=ed.nos.find(x=>x.id===id);if(!n)return;
+  const irm=ed.nos.filter(x=>(x.pai??null)===(n.pai??null));const k=irm.indexOf(n),alvo=irm[k+dir];if(!alvo)return;
+  const a=ed.nos.indexOf(n),b=ed.nos.indexOf(alvo);ed.nos[a]=alvo;ed.nos[b]=n;_orgEdRefresh();
+}
+function orgEdSel(id){if(!_ORG_ED)return;_ORG_ED.sel=_ORG_ED.sel===id?null:id;_orgEdRefresh();}
+function orgEdBusca(v){if(!_ORG_ED)return;_ORG_ED.busca=v;const el=document.getElementById('orgEdEquipe');if(el)el.innerHTML=_orgEdEquipeHTML();}
+function orgEdOutros(v){if(!_ORG_ED)return;_ORG_ED.outros=!!v;const el=document.getElementById('orgEdEquipe');if(el)el.innerHTML=_orgEdEquipeHTML();}
+// Arrastar e soltar
+function orgEdDrag(ev,ref){if(_ORG_ED)_ORG_ED.drag=ref;try{ev.dataTransfer.setData('text/plain',ref);ev.dataTransfer.effectAllowed='move';}catch(e){}}
+function orgEdOver(ev,el){ev.preventDefault();if(el)el.style.outline='2px dashed var(--ac)';}
+function orgEdLeave(el){if(el)el.style.outline='';}
+function orgEdDrop(ev,alvo){
+  ev.preventDefault();if(ev.currentTarget)ev.currentTarget.style.outline='';
+  const ed=_ORG_ED;if(!ed)return;
+  let ref='';try{ref=ev.dataTransfer.getData('text/plain');}catch(e){}
+  ref=ref||ed.drag||'';ed.drag=null;
+  if(ref.startsWith('c:'))orgEdAddColab(ref.slice(2),alvo||null);
+  else if(ref.startsWith('n:')){const id=ref.slice(2);if(id!==alvo)orgEdSetPai(id,alvo||null);}
+}
+
+function _orgMini(foto,cor,sz){sz=sz||28;return foto?`<img src="${foto}" style="width:${sz}px;height:${sz}px;border-radius:50%;object-fit:cover;border:2px solid ${cor};flex-shrink:0;">`
+  :`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:#eef2f7;border:2px solid ${cor};flex-shrink:0;display:flex;align-items:center;justify-content:center;"><svg width="${sz*.62}" height="${sz*.62}" viewBox="0 0 24 24" fill="none" stroke="#9aa8ba" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg></div>`;}
+function _orgEdEquipeHTML(){
+  const ed=_ORG_ED;
+  const naOrg=new Set(ed.nos.filter(n=>n.colabId!=null).map(n=>String(n.colabId)));
+  const q=(ed.busca||'').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');
+  const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu,'');
+  let lista=S.colaboradores.filter(c=>c.status!=='Desligado'&&(ed.outros||String(c.projeto)===String(ed.pjId)));
+  if(q)lista=lista.filter(c=>norm(c.nome).includes(q)||norm(c.funcao).includes(q));
+  _migrarFuncoes();
+  lista=lista.map(c=>({c,h:HIERARQUIA.getInfo(c.funcao,S.funcoes)})).sort((a,b)=>a.h.prio-b.h.prio||String(a.c.nome).localeCompare(String(b.c.nome)));
+  if(!lista.length)return `<div style="padding:16px;font-size:11px;color:var(--t3);text-align:center;">${ed.outros?'Nenhum colaborador encontrado':'Nenhum colaborador vinculado a este projeto.<br>Marque "Mostrar outros colaboradores" ou crie vagas.'}</div>`;
+  return lista.map(({c,h})=>{
+    const ja=naOrg.has(String(c.id));
+    const outroPj=String(c.projeto)!==String(ed.pjId);
+    const pjNome=outroPj?(S.projetos.find(p=>String(p.id)===String(c.projeto))?.nome||'sem projeto'):'';
+    return `<div ${ja?'':`draggable="true" ondragstart="orgEdDrag(event,'c:${_orgEsc(c.id)}')" onclick="orgEdAddColab('${_orgEsc(c.id)}')"`} title="${ja?'Já está no organograma':'Clique para adicionar abaixo do item selecionado, ou arraste até o superior'}"
+      style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--b1);border-left:4px solid ${h.cor};border-radius:7px;margin-bottom:5px;background:var(--bg3);cursor:${ja?'default':'grab'};opacity:${ja?.45:1};">
+      ${_orgMini(c.foto,h.cor,26)}
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:11.5px;font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_orgEsc(c.nome)}</div>
+        <div style="font-size:9.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_orgEsc(c.funcao||'—')}${outroPj?` · <span style="color:var(--yl)">${_orgEsc(pjNome)}</span>`:''}${c.status&&c.status!=='Ativo'?` · ${_orgEsc(c.status)}`:''}</div>
+      </div>
+      <span style="font-size:13px;color:${ja?'var(--gn)':'var(--ac)'};">${ja?'✓':'＋'}</span>
+    </div>`;
+  }).join('');
+}
+function _orgEdArvoreHTML(){
+  const ed=_ORG_ED,nos=ed.nos;
+  if(!nos.length)return `<div style="padding:24px;font-size:11px;color:var(--t3);text-align:center;">Estrutura vazia. Clique nas pessoas da lista ao lado (ou arraste) para montar.<br>A primeira pessoa adicionada fica no topo.</div>`;
+  let html='';
+  const linha=(n,d)=>{
+    const i=_orgNoInfo(n),sel=ed.sel===n.id;
+    const desc=_orgDescendentes(nos,n.id);
+    const opts=['<option value="">— Topo (sem superior) —</option>'].concat(nos.filter(x=>x.id!==n.id&&!desc.has(x.id)).map(x=>{const xi=_orgNoInfo(x);return `<option value="${x.id}" ${x.id===n.pai?'selected':''}>${_orgEsc((xi.nome||'Vaga')+' — '+(xi.funcao||''))}</option>`;})).join('');
+    const aviso=i.sumiu?' <span style="color:var(--rd)">(excluído)</span>':i.desligado?' <span style="color:var(--rd)">(desligado)</span>':'';
+    html+=`<div draggable="true" ondragstart="orgEdDrag(event,'n:${n.id}')" ondragover="orgEdOver(event,this)" ondragleave="orgEdLeave(this)" ondrop="orgEdDrop(event,'${n.id}')"
+      style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin:0 0 5px ${d*22}px;border:1px solid ${sel?'var(--ac)':'var(--b1)'};border-left:4px solid ${i.cor};border-radius:7px;background:${sel?'rgba(198,255,0,.07)':'var(--bg3)'};flex-wrap:wrap;">
+      <span style="cursor:grab;color:var(--t3);font-size:13px;" title="Arraste para cima de outra pessoa para subordinar">⠿</span>
+      <div onclick="orgEdFoto('${n.id}')" title="Clique para inserir/trocar a foto" style="cursor:pointer;">${_orgMini(i.foto,i.cor,32)}</div>
+      <div style="flex:1;min-width:140px;cursor:pointer;" onclick="orgEdSel('${n.id}')" title="Selecionar: novos itens entram abaixo desta posição">
+        <div style="font-size:11.5px;font-weight:700;color:var(--t1);">${d?'<span style="color:var(--t3)">└ </span>':''}${_orgEsc(i.vaga?(i.nome||'A definir'):i.nome)}${i.vaga?' <span style="font-size:9px;color:var(--yl);border:1px dashed var(--yl);border-radius:4px;padding:0 4px;">vaga</span>':''}${aviso}</div>
+        <div style="font-size:9.5px;color:var(--t3);">${_orgEsc(i.funcao||'—')}</div>
+      </div>
+      <select class="fi" style="width:190px;margin:0;font-size:10.5px;padding:4px 6px;" title="Superior imediato" onchange="orgEdSetPai('${n.id}',this.value)">${opts}</select>
+      <div style="display:flex;gap:3px;">
+        <button class="btn xs" title="Inserir / trocar foto" onclick="orgEdFoto('${n.id}')">📷</button>
+        ${i.foto?`<button class="btn xs" title="Remover foto (fica o desenho em branco)" onclick="orgEdFotoRem('${n.id}')">🚫</button>`:''}
+        ${i.vaga?`<button class="btn xs" title="Editar vaga" onclick="orgEdEditarVaga('${n.id}')">✎</button>`:''}
+        <button class="btn xs" title="Subir" onclick="orgEdMover('${n.id}',-1)">▲</button>
+        <button class="btn xs" title="Descer" onclick="orgEdMover('${n.id}',1)">▼</button>
+        <button class="btn xs" title="Remover (subordinados sobem um nível)" onclick="orgEdRemover('${n.id}')">✕</button>
+      </div>
+    </div>`;
+    _orgFilhos(nos,n.id).forEach(c=>linha(c,d+1));
+  };
+  _orgRaizes(nos).forEach(r=>linha(r,0));
+  return html;
+}
+function _orgEdHTML(){
+  const ed=_ORG_ED;
+  const proj=S.projetos.find(p=>String(p.id)===String(ed.pjId));
+  const selN=ed.sel?ed.nos.find(n=>n.id===ed.sel):null;
+  const selTxt=selN?_orgEsc(_orgNoInfo(selN).nome||_orgNoInfo(selN).funcao):'';
+  return `<div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--ac);">✏️ Montando organograma — ${_orgEsc(proj?.nome||'')}</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px;">Clique numa pessoa da equipe para incluí-la, ou arraste-a para cima do superior. Clique na foto (ou em 📷) para inserir a imagem — sem foto aparece o desenho em branco. ${selN?`Novos itens entram abaixo de <b style="color:var(--ac)">${selTxt}</b>.`:'Selecione uma posição na estrutura para incluir pessoas abaixo dela.'}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" onclick="orgEdAuto()" title="Monta a estrutura pela hierarquia definida no Banco de Funções">⚡ Montar automático</button>
+          <button class="btn" onclick="orgEdAddVaga()">➕ Cargo / vaga</button>
+          <button class="btn" onclick="orgEdLimpar()">🧹 Limpar</button>
+          <button class="btn" onclick="orgEdCancelar()">Cancelar</button>
+          <button class="btn prim" onclick="orgEdSalvar()">💾 Salvar organograma</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px;">
+      <div class="card" style="flex:1 1 260px;max-width:340px;min-width:240px;margin:0;">
+        <div class="ct"><span class="cti">👷</span>Equipe disponível</div>
+        <input class="fi" style="margin:0 0 8px;" placeholder="Buscar nome ou função..." value="${_orgEsc(ed.busca)}" oninput="orgEdBusca(this.value)">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t2);margin-bottom:8px;cursor:pointer;"><input type="checkbox" ${ed.outros?'checked':''} onchange="orgEdOutros(this.checked)"> Mostrar outros colaboradores</label>
+        <div id="orgEdEquipe" style="max-height:460px;overflow-y:auto;padding-right:2px;">${_orgEdEquipeHTML()}</div>
+      </div>
+      <div class="card" style="flex:3 1 420px;min-width:300px;margin:0;">
+        <div class="ct"><span class="cti">🧩</span>Estrutura (${ed.nos.length})</div>
+        <div ondragover="orgEdOver(event,this)" ondragleave="orgEdLeave(this)" ondrop="orgEdDrop(event,'')" onclick="if(_ORG_ED&&_ORG_ED.sel)orgEdSel(_ORG_ED.sel)"
+          style="border:1px dashed var(--b2,var(--b1));border-radius:7px;padding:6px;text-align:center;font-size:10.5px;color:var(--t3);margin-bottom:8px;cursor:pointer;">⬆ Solte aqui para colocar no topo${ed.sel?' · clique para desmarcar a seleção':''}</div>
+        <div style="max-height:460px;overflow-y:auto;">${_orgEdArvoreHTML()}</div>
+      </div>
+    </div>
+    ${ed.nos.length?`<div class="card"><div class="ct"><span class="cti">👁️</span>Pré-visualização</div><div class="org-wrap fit" style="overflow-x:auto;padding:10px 0;">${_orgManualSVG(ed.nos)}</div></div>`:''}`;
+}
+function _orgEdRefresh(){const el=document.getElementById('orgContent');if(el&&_ORG_ED)el.innerHTML=_orgEdHTML();}
+
+// Impressão do organograma montado
+function _orgImprimirManual(proj){
+  const org=_orgSalvo(proj.id);if(!org){notif('Este projeto ainda não tem organograma montado','wn');return;}
+  const svg=_orgManualSVG(org.nos);
+  const n=org.nos.filter(x=>x.colabId!=null).length;
+  const w=window.open('','_blank');if(!w){notif('Popup bloqueado','wn');return;}
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Organograma — ${_orgEsc(proj.nome)}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>@page{size:A4 landscape;margin:10mm;}
+      *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box;}
+      :root{--bg3:#ffffff;--t1:#0f172a;--t3:#475569;}
+      body{font-family:"Inter",sans-serif;background:#fff;color:#0f172a;padding:12px;margin:0;}
+      .hdr{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;padding-bottom:8px;border-bottom:2.5px solid #C6FF00;}
+      .hdr h1{font-size:20px;font-weight:800;margin:0 0 2px;} .hdr p{font-size:10px;color:#64748b;margin:0;} .r{font-size:9px;color:#94a3b8;text-align:right;}
+      .wrap svg{max-width:100%;height:auto;}
+    </style></head><body>
+    <div class="hdr"><div><h1>${_orgEsc(proj.nome)}</h1><p>${_orgEsc(proj.cliente||'')} &nbsp;·&nbsp; ${_orgEsc(proj.local||'—')} &nbsp;·&nbsp; ${n} colaborador${n!==1?'es':''}</p></div>
+      <div class="r">GestãoCampo Pro<br>Impresso em ${new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div></div>
+    <div class="wrap">${svg}</div>
+    <script>document.fonts.ready.then(()=>setTimeout(()=>window.print(),700));<\/script>
+  </body></html>`);
+  w.document.close();
+  log('Organograma impresso: '+proj.nome,'🖨️');
+  notif('Preparando impressão...');
+}
+
 function imprimirOrg(){
   const pjId=document.getElementById('orgPj')?.value;
   const tipo=document.getElementById('orgTipo')?.value||'classico';
   if(!pjId){notif('Selecione um projeto','wn');return;}
   const proj=S.projetos.find(p=>p.id==pjId);
+  if(tipo==='manual'){if(proj)_orgImprimirManual(proj);return;}
   const cols=S.colaboradores.filter(c=>c.projeto==pjId&&c.status!=='Desligado');
   if(!cols.length){notif('Nenhum colaborador no projeto','wn');return;}
 
